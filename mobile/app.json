@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "homedash",
+    "slug": "homedash",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "homedash",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "dev.homedash.app" },
+    "android": { "package": "dev.homedash.app", "usesCleartextTraffic": true },
+    "plugins": ["expo-secure-store"]
+  }
+}
