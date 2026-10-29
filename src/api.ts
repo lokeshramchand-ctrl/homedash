@@ -1,6 +1,6 @@
 import type {
   AppConfig, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
-  JournalLine, LogSummary, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
+  JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
 
@@ -86,6 +86,20 @@ export const api = {
   notify: () => get<NotifyInfo>('/notify'),
   notifySettings: (s: Partial<NotifySettings>) => post<NotifySettings>('/notify/settings', s),
   notifyTest: () => post<{ ok: true }>('/notify/test'),
+  netmap: () => get<NetMap>('/netmap'),
+  protection: () => get<Protection>('/protection'),
+  capacity: () => get<Capacity>('/capacity'),
+  health: () => get<Health>('/health'),
+  snapshotCreate: (vmid: number, name?: string) => post<{ taskId: string; name: string }>(`/guests/${vmid}/snapshots`, { name }),
+  snapshotDelete: (vmid: number, name: string) => del<{ taskId: string }>(`/guests/${vmid}/snapshots/${encodeURIComponent(name)}`),
+  scenes: () => get<Scene[]>('/scenes'),
+  sceneSave: (id: number | null, name: string, steps: SceneStep[]) => (id === null ? post<{ id: number }>('/scenes', { name, steps }) : put<{ id: number }>(`/scenes/${id}`, { name, steps })),
+  sceneDelete: (id: number) => del<{ ok: boolean }>(`/scenes/${id}`),
+  sceneRun: (id: number) => post<SceneRun>(`/scenes/${id}/run`),
+  sceneRuns: () => get<SceneRun[]>('/scenes/runs'),
+  schedules: () => get<Schedule[]>('/schedules'),
+  scheduleSave: (id: number | null, s: Omit<Schedule, 'id' | 'lastRun' | 'lastResult'>) => (id === null ? post<{ id: number }>('/schedules', s) : put<{ id: number }>(`/schedules/${id}`, s)),
+  scheduleDelete: (id: number) => del<{ ok: boolean }>(`/schedules/${id}`),
   nginx: () => get<NginxSite[]>('/nginx/sites'),
   nginxManage: () => get<NginxManage>('/nginx/manage'),
   nginxDetails: () => get<NginxDetail[]>('/nginx/details'),

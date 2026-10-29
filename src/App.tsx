@@ -9,7 +9,12 @@ import { RefreshCtx, SearchCtx, ToastProvider, useHash, useQuery, useToast } fro
 import Diagnostics from './pages/Diagnostics';
 import Gpu from './pages/Gpu';
 import GuestDetail from './pages/GuestDetail';
+import Capacity from './pages/Capacity';
+import Health from './pages/Health';
+import Netmap from './pages/Netmap';
 import Node from './pages/Node';
+import Protection from './pages/Protection';
+import Scenes from './pages/Scenes';
 import Notifications from './pages/Notifications';
 import Tasks from './pages/Tasks';
 import Guests from './pages/Guests';
@@ -27,6 +32,11 @@ const NAV: { id: string; label: string; icon: IconName; group: string }[] = [
   { id: 'guests', label: 'Guests', icon: 'server', group: 'Datacenter' },
   { id: 'gpu', label: 'GPU & passthrough', icon: 'cpu', group: 'Datacenter' },
   { id: 'tasks', label: 'Task log', icon: 'tasks', group: 'Datacenter' },
+  { id: 'scenes', label: 'Scenes & schedules', icon: 'play', group: 'Datacenter' },
+  { id: 'health', label: 'Health', icon: 'pulse', group: 'Insights' },
+  { id: 'protection', label: 'Protection', icon: 'lock', group: 'Insights' },
+  { id: 'capacity', label: 'Capacity', icon: 'disk', group: 'Insights' },
+  { id: 'netmap', label: 'Network map', icon: 'network', group: 'Insights' },
   { id: 'nginx', label: 'Nginx sites', icon: 'globe', group: 'Services' },
   { id: 'kuma', label: 'Uptime', icon: 'pulse', group: 'Monitoring' },
   { id: 'grafana', label: 'Grafana', icon: 'analytics', group: 'Monitoring' },
@@ -37,6 +47,7 @@ const NAV: { id: string; label: string; icon: IconName; group: string }[] = [
 const GROUPS = [...new Set(NAV.map((n) => n.group))];
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
+  scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
 
@@ -221,6 +232,11 @@ function Shell({ user, config, onLogout }: { user: string; config: AppConfig; on
             {page === 'tasks' && <Tasks />}
             {page === 'gpu' && <Gpu />}
             {page === 'diagnostics' && <Diagnostics />}
+            {page === 'scenes' && <Scenes />}
+            {page === 'health' && <Health />}
+            {page === 'protection' && <Protection />}
+            {page === 'capacity' && <Capacity />}
+            {page === 'netmap' && <Netmap />}
             {page === 'nginx' && <Nginx />}
             {page === 'grafana' && <Grafana uid={parts[1]} />}
             {page === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}

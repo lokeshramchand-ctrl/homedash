@@ -174,3 +174,31 @@ export interface WindowsReport {
   metrics: { samples: number; cpu: Stat | null; mem: Stat | null; netIn: Stat | null; netOut: Stat | null; diskRead: Stat | null; diskWrite: Stat | null; cpuSaturatedPct: number; idleSamples: number };
   metricsTimeframe: Timeframe; counts: { lines: number; problems: number }; recurring: Recurring[]; lines: LogLine[];
 }
+
+// ---- insights ----
+export interface NetGuest { vmid: number; name: string; type: 'lxc' | 'qemu'; status: string; ips: { ip: string; source: 'agent' | 'runtime' | 'config' }[]; macs: string[]; bridges: string[] }
+export interface NetSite { file: string; serverName: string; upstream: string; host: string; port: string; guest: { vmid: number; name: string; status: string } | null; issue: 'ok' | 'guest-stopped' | 'unknown-target' | 'hostname' | 'local' }
+export interface NetMap { guests: NetGuest[]; duplicates: { kind: 'ip' | 'mac'; value: string; guests: { vmid: number; name: string }[] }[]; sites: NetSite[] }
+
+export interface ProtectionGuest {
+  vmid: number; name: string; type: 'lxc' | 'qemu'; status: string; backup: 'ok' | 'stale' | 'never'; lastBackup: string | null; backupAgeDays: number | null;
+  backups: number; backupBytes: number; inJob: boolean | null; snapshots: number; oldestSnapshotDays: number | null; oldSnapshot: boolean;
+}
+export interface Protection {
+  maxAgeDays: number; snapshotMaxAgeDays: number; unreadableStorages: string[];
+  summary: { total: number; ok: number; stale: number; never: number; notInJob: number; oldSnapshots: number }; guests: ProtectionGuest[];
+}
+
+export interface Capacity {
+  host: { memTotal: number; memUsed: number; reserveBytes: number; allocatedMem: number; availableMem: number; cores: number; allocatedVcpu: number; vcpuRatio: number };
+  storages: { storage: string; type: string; used: number; total: number; usedRatio: number; bytesPerDay: number | null; daysToFull: number | null; trend: 'growing' | 'flat' | 'shrinking' | 'unknown' }[];
+  stopped: { vmid: number; name: string; type: string; maxmem: number; maxcpu: number; fits: boolean; shortBy: number }[];
+}
+
+export interface HealthCheck { id: string; title: string; status: 'ok' | 'warn' | 'fail' | 'unknown'; detail: string; hint?: string }
+export interface Health { score: number; checks: HealthCheck[] }
+
+export interface SceneStep { vmid: number; action: 'start' | 'shutdown' | 'stop' | 'reboot'; waitSeconds: number; continueOnError: boolean }
+export interface Scene { id: number; name: string; steps: SceneStep[] }
+export interface SceneRun { id: string; scene: string; by: string; startedAt: string; finishedAt: string | null; status: 'running' | 'ok' | 'error'; steps: { vmid: number; action: string; status: string; message: string }[] }
+export interface Schedule { id: number; name: string; sceneId: number | null; vmid: number | null; action: string | null; days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null }
