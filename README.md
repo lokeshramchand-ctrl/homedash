@@ -58,6 +58,10 @@ var_homedash_grafana_url=http://192.168.1.14:3000 var_homedash_grafana_token=gls
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/lokeshramchand-ctrl/homedash/main/ct/homedash.sh)"
 ```
 
+### Nginx inside the container
+
+The installer puts nginx in the container and sets `NGINX_MANAGE=true`, so the Nginx page manages `/etc/nginx/sites-enabled` there: point DNS (or your router) for a name at the container and add the site in the UI. To manage a different nginx, set `NGINX_MANAGE=false` for a read-only view.
+
 ### Everything else in `.env`
 
 Every option is documented in [`server/.env.example`](server/.env.example): protected guests (`PROTECTED_VMIDS`), a featured guest card (`FEATURED_VMID`), device-conflict warnings (`GUEST_CONFLICTS`), ntfy alerts, Keycloak/OIDC sign-in, an optional AI log helper and more. After editing: `systemctl restart homedash`.
@@ -73,6 +77,12 @@ homedash works with Grafana in both directions: it embeds your Grafana dashboard
 ## Features
 
 - **Overview**: host CPU, memory and disk, guest counts, and a "needs attention" list.
+- **Health**: one score for the node from nine checks: pending updates, web certificate expiry, SMART, ZFS, core services, memory and swap, failed tasks, backups and storage headroom. A check whose API permission is missing shows as Unknown instead of silently passing.
+- **Protection**: which guests have no backup, a stale one, or no backup job at all, and which hold snapshots older than a threshold. One click to snapshot, press-and-hold to drop the oldest.
+- **Capacity**: a per-storage forecast ("`local-lvm` is full in about 151 days at +2 GB/day") from the last 30 days of usage, plus a "can I start it?" check of each stopped guest against RAM not yet promised to running ones.
+- **Network map**: every guest address (LXC interfaces, QEMU guest agent, or config) in one table; duplicate IP and MAC detection; and every nginx site checked against the guest it proxies to, flagging sites that point at a stopped guest or an address no guest owns.
+- **Nginx manager**: create reverse-proxy sites from a form with a live preview of the exact config, edit raw config, restore earlier versions, see certificate expiry. Every change is backed up, tested with `nginx -t` and rolled back if the test fails. Running guests can be published straight from the Network map.
+- **Scenes and schedules**: save an ordered set of power steps ("stop media, wait 10 s, start the gaming VM"), run it with one click, or put a scene or a single action on a weekly timer.
 - **Guests**: start, shutdown, stop, reboot with live task status, an audit log, and optional device-conflict warnings.
 - **Windows VM tab**: read-only diagnostics for QEMU guests (config health, guest agent, resource use, host log).
 - **Nginx**: read-only view of sites, matched to Uptime Kuma monitors.
@@ -81,6 +91,16 @@ homedash works with Grafana in both directions: it embeds your Grafana dashboard
 - Light and dark themes, responsive down to phone width, command palette (`Ctrl/Cmd + K`).
 
 > Host-level pages (GPU and IOMMU, host journal) read the Proxmox host itself, so they only show data when homedash runs on the host, not inside an LXC. The installer sets `JOURNAL_ENABLED=false` for that reason.
+
+## Test the installer
+
+`tools/dev/test-ct.sh` creates a throwaway Debian 13 container on a Proxmox host, runs the real `install/homedash-install.sh` in it (with `tools/dev/shim.sh` standing in for the framework helpers) and removes it afterwards. It refuses to touch an ID that already exists.
+
+```bash
+bash tools/dev/test-ct.sh --keep 9999 10.10.10.199/24 10.10.10.1 vnet1
+```
+
+Unit tests for the pure logic (forecasting, duplicate detection, scheduling, validation): `cd server && npm test`.
 
 ## Develop
 

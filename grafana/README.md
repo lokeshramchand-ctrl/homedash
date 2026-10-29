@@ -38,6 +38,11 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" http://HOMEDASH_IP:3000/metrics
 | `homedash_monitor_up` | `monitor`, `type` | Uptime Kuma state |
 | `homedash_monitor_response_ms` | `monitor`, `type` | Uptime Kuma response time |
 | `homedash_nginx_sites` | | `server_name` entries found |
+| `homedash_health_score` | | 0..100 from the Health page checks |
+| `homedash_storage_used_ratio` | `storage` | 0..1 |
+| `homedash_storage_days_to_full` | `storage` | forecast; absent when not growing |
+| `homedash_memory_available_for_guests_bytes` | | RAM not yet promised to running guests |
+| `homedash_guests_without_backup` / `_stale_backup` / `_old_snapshots` | | counts from the Protection page |
 
 ## 2. Show Grafana inside homedash
 

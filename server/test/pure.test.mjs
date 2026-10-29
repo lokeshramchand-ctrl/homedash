@@ -46,6 +46,7 @@ test('protectionOf', () => {
 test('health scoring', () => {
   assert.equal(scoreOf([{ status: 'ok' }, { status: 'warn' }, { status: 'fail' }, { status: 'unknown' }]), 80);
   assert.equal(scoreOf(Array(10).fill({ status: 'fail' })), 0);
+  assert.equal(scoreOf([{ status: 'unknown' }, { status: 'unknown' }]), null);
   assert.equal(certStatus(5), 'fail'); assert.equal(certStatus(20), 'warn'); assert.equal(certStatus(90), 'ok');
 });
 test('nginx spec validation blocks injection', () => {

@@ -11,7 +11,7 @@
   "website": "https://github.com/lokeshramchand-ctrl/homedash",
   "repository": "https://github.com/lokeshramchand-ctrl/homedash",
   "logo": "https://cdn.jsdelivr.net/gh/lokeshramchand-ctrl/homedash@main/public/icon.svg",
-  "description": "A single-user dashboard for a Proxmox homelab. Start, stop and reboot guests, see host and guest metrics, browse nginx sites, embed Grafana and watch Uptime Kuma, from the browser or a phone. Exposes a Prometheus /metrics endpoint for Grafana.",
+  "description": "A single-user dashboard for a Proxmox homelab: guest control with scenes and schedules, a health score, backup and snapshot protection, storage fill forecasts, a network map and an nginx reverse-proxy manager. Embeds Grafana and exposes Prometheus metrics.",
   "install_methods": [
     {
       "type": "default",

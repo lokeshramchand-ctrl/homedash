@@ -13,6 +13,11 @@ setting_up_container
 network_check
 update_os
 
+msg_info "Installing Dependencies"
+$STD apt install -y nginx
+rm -f /etc/nginx/sites-enabled/default
+msg_ok "Installed Dependencies"
+
 NODE_VERSION="22" setup_nodejs
 fetch_and_deploy_gh_release "homedash" "lokeshramchand-ctrl/homedash" "tarball"
 
@@ -61,6 +66,8 @@ GRAFANA_TOKEN=${var_homedash_grafana_token}
 KUMA_URL=${var_homedash_kuma_url}
 KUMA_API_KEY=${var_homedash_kuma_api_key}
 JOURNAL_ENABLED=false
+NGINX_MANAGE=true
+NGINX_SITES_DIR=/etc/nginx/sites-enabled
 EOF
 if [[ "${var_homedash_metrics}" == "yes" ]]; then
   echo "METRICS_TOKEN=$(openssl rand -hex 32)" >>/opt/homedash/server/.env

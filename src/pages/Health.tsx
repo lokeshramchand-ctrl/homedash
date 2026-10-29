@@ -14,17 +14,18 @@ export default function Health() {
       <PageHeader eyebrow="Insights" title="Health" sub="One score for the whole node: updates, certificates, disks, ZFS, services, backups and storage headroom." />
       <Async q={q} rows={6} h={64}>
         {(h) => {
-          const tone: Tone = h.score >= 90 ? 'green' : h.score >= 70 ? 'amber' : 'red';
+          const score = h.score;
+          const tone: Tone = score === null ? 'gray' : score >= 90 ? 'green' : score >= 70 ? 'amber' : 'red';
           const order = { fail: 0, warn: 1, unknown: 2, ok: 3 } as const;
           return (
             <>
               <div className="stat-row">
-                <div><b>{h.score}</b><span>Health score (100 is perfect)</span></div>
+                <div><b>{score ?? '–'}</b><span>Health score (100 is perfect)</span></div>
                 <div><b>{h.checks.filter((c) => c.status === 'fail').length}</b><span>Problems</span></div>
                 <div><b>{h.checks.filter((c) => c.status === 'warn').length}</b><span>Warnings</span></div>
                 <div><b>{h.checks.filter((c) => c.status === 'ok').length}</b><span>Passing</span></div>
               </div>
-              <Badge tone={tone} dot>{h.score >= 90 ? 'Healthy' : h.score >= 70 ? 'Needs attention' : 'Action required'}</Badge>
+              <Badge tone={tone} dot>{score === null ? 'Nothing could be checked' : score >= 90 ? 'Healthy' : score >= 70 ? 'Needs attention' : 'Action required'}</Badge>
               <Card pad={false}>
                 {[...h.checks].sort((a, b) => order[a.status] - order[b.status]).map((c) => (
                   <div key={c.id} className="list-row">

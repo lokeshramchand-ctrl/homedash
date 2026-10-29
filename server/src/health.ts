@@ -14,8 +14,9 @@ export interface Check { id: string; title: string; status: CheckStatus; detail:
 type Result = Omit<Check, 'id' | 'title'>;
 const ok = (detail: string): Result => ({ status: 'ok', detail });
 
-/** 100 minus 15 per failure and 5 per warning; unknown checks do not count either way. */
-export function scoreOf(checks: Pick<Check, 'status'>[]): number {
+/** 100 minus 15 per failure and 5 per warning; unknown checks do not count either way. Null when nothing could be checked. */
+export function scoreOf(checks: Pick<Check, 'status'>[]): number | null {
+  if (!checks.some((c) => c.status !== 'unknown')) return null;
   const s = 100 - checks.filter((c) => c.status === 'fail').length * 15 - checks.filter((c) => c.status === 'warn').length * 5;
   return Math.max(0, Math.min(100, s));
 }
@@ -111,7 +112,7 @@ const CHECKS: { id: string; title: string; run: () => Promise<Result> }[] = [
   },
 ];
 
-let cache: { at: number; value: { score: number; checks: Check[] } } | null = null;
+let cache: { at: number; value: { score: number | null; checks: Check[] } } | null = null;
 const last = new Map<string, CheckStatus>();
 const ANNOUNCE = new Set(['certificate', 'backups', 'capacity', 'updates']); // the other checks already alert via the notifier
 

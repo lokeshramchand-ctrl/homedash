@@ -73,7 +73,7 @@ export function registerMetrics(app: FastifyInstance) {
 
     if (pveConfigured()) {
       const [health, cap, prot] = await Promise.allSettled([runHealth(), buildCapacity(), buildProtection()]);
-      if (health.status === 'fulfilled') r.add('homedash_health_score', 'Overall health score, 0..100.', 'gauge', health.value.score);
+      if (health.status === 'fulfilled' && health.value.score !== null) r.add('homedash_health_score', 'Overall health score, 0..100.', 'gauge', health.value.score);
       if (cap.status === 'fulfilled') {
         for (const s of cap.value.storages) {
           const l = { storage: s.storage };

@@ -196,7 +196,7 @@ export interface Capacity {
 }
 
 export interface HealthCheck { id: string; title: string; status: 'ok' | 'warn' | 'fail' | 'unknown'; detail: string; hint?: string }
-export interface Health { score: number; checks: HealthCheck[] }
+export interface Health { score: number | null; checks: HealthCheck[] }
 
 export interface SceneStep { vmid: number; action: 'start' | 'shutdown' | 'stop' | 'reboot'; waitSeconds: number; continueOnError: boolean }
 export interface Scene { id: number; name: string; steps: SceneStep[] }
