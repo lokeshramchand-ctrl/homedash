@@ -6,3 +6,7 @@ server/build/
 !.env.example
 *.log
 .DS_Store
+server/data/
+data/
+*.db
+*.db-*

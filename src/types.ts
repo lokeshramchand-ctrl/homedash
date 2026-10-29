@@ -99,7 +99,7 @@ export interface SystemEvent {
 export interface JournalLine { ts: string; priority: number; unit: string; message: string; pid?: string }
 export interface BootInfo { index: number; bootId: string; first: string; last: string; clean: boolean | null; endReason: string }
 export interface LogSummary {
-  boots: BootInfo[]; journalError: string | null; errors24h: number; lastHeartbeat: string | null; pendingEvents: number; processUptime: number;
+  boots: BootInfo[]; journalError: string | null; errors24h: number; lastHeartbeat: string | null; processUptime: number;
 }
 export interface SsoConfig { enabled: boolean; label: string }
 

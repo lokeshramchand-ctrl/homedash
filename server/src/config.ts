@@ -27,8 +27,7 @@ export const cfg = {
   trustProxy: bool('TRUST_PROXY', true),
   serveDist: env('SERVE_DIST'), // optional path to the built UI (dist/)
 
-  mongoUri: env('MONGO_URI', 'mongodb://127.0.0.1:27017'),
-  mongoDb: env('MONGO_DB', 'homelab'),
+  dbPath: env('DB_PATH', './data/homedash.db'), // SQLite file; the directory is created on start
 
   sessionTtlHours: Number(env('SESSION_TTL_HOURS', '12')),
   cookieSecure: bool('COOKIE_SECURE', true),

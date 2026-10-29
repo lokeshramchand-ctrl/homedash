@@ -65,7 +65,7 @@ app.addHook('onRequest', async (req, reply) => {
   if (req.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
 });
 
-await connectDb();
+connectDb();
 await app.register(cookie);
 registerAuth(app);
 registerOidc(app);
@@ -86,7 +86,7 @@ startKuma(app);
 startEvents(app);
 startNotify(app);
 
-const shutdown = async () => { await recordCleanStop(); await app.close(); await closeDb(); process.exit(0); };
+const shutdown = async () => { await recordCleanStop(); await app.close(); closeDb(); process.exit(0); };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 

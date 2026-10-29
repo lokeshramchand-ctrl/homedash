@@ -1,13 +1,12 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { ObjectId } from 'mongodb';
 import { cfg } from './config.js';
-import { col } from './db.js';
+import { attemptCount, bumpAttempts, clearAttempts, deleteSession, findSession, findUser, insertSession, touchLogin } from './db.js';
 import { HttpError } from './errors.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: ObjectId; username: string };
+    user?: { id: number; username: string };
   }
 }
 
@@ -35,14 +34,13 @@ export function verifyPassword(password: string, stored: string): boolean {
 const DUMMY_HASH = hashPassword(randomBytes(8).toString('hex'));
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
-export async function createSession(req: FastifyRequest, reply: FastifyReply, userId: ObjectId, username: string) {
+export async function createSession(req: FastifyRequest, reply: FastifyReply, userId: number, username: string) {
   const token = randomBytes(32).toString('hex');
   const ttlMs = cfg.sessionTtlHours * 3600_000;
-  await col.sessions().insertOne({
-    tokenHash: sha256(token), userId, username,
-    createdAt: new Date(), expiresAt: new Date(Date.now() + ttlMs),
+  insertSession({
+    tokenHash: sha256(token), userId, username, expiresAt: Date.now() + ttlMs,
     ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200),
-  } as never);
+  });
   reply.setCookie(COOKIE, token, {
     httpOnly: true, sameSite: 'strict', secure: cfg.cookieSecure, path: '/', maxAge: Math.floor(ttlMs / 1000),
   });
@@ -67,7 +65,7 @@ export function registerAuth(app: FastifyInstance) {
     if (path === '/api/auth/login' || path.startsWith('/api/auth/sso/')) return;
 
     const token = req.cookies[COOKIE];
-    const session = token ? await col.sessions().findOne({ tokenHash: sha256(token), expiresAt: { $gt: new Date() } }) : null;
+    const session = token ? findSession(sha256(token)) : null;
     if (!session) {
       reply.clearCookie(COOKIE, { path: '/' });
       throw new HttpError(401, 'UNAUTHENTICATED', 'Login required');
@@ -83,33 +81,28 @@ export function registerAuth(app: FastifyInstance) {
     }
 
     const key = `${req.ip}|${username}`;
-    const attempts = await col.attempts().findOne({ _id: key });
-    if (attempts && attempts.count >= MAX_ATTEMPTS) {
+    if (attemptCount(key) >= MAX_ATTEMPTS) {
       throw new HttpError(429, 'RATE_LIMITED', 'Too many failed attempts. Try again in a few minutes.');
     }
 
-    const user = await col.users().findOne({ username });
+    const user = findUser(username);
     const ok = verifyPassword(password, user?.passwordHash ?? DUMMY_HASH) && !!user;
     if (!ok || !user) {
-      await col.attempts().updateOne(
-        { _id: key },
-        { $inc: { count: 1 }, $setOnInsert: { expireAt: new Date(Date.now() + ATTEMPT_WINDOW_MS) } },
-        { upsert: true },
-      );
+      bumpAttempts(key, ATTEMPT_WINDOW_MS);
       req.log.warn({ username, ip: req.ip }, 'failed login');
       throw new HttpError(401, 'BAD_CREDENTIALS', 'Invalid username or password');
     }
 
-    await col.attempts().deleteOne({ _id: key });
-    await col.users().updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
-    await createSession(req, reply, user._id, user.username);
+    clearAttempts(key);
+    touchLogin(user.id);
+    await createSession(req, reply, user.id, user.username);
     req.log.info({ username: user.username, ip: req.ip }, 'login');
     return { username: user.username };
   });
 
   app.post('/api/auth/logout', async (req, reply) => {
     const token = req.cookies[COOKIE];
-    if (token) await col.sessions().deleteOne({ tokenHash: sha256(token) });
+    if (token) deleteSession(sha256(token));
     reply.clearCookie(COOKIE, { path: '/' });
     return { ok: true };
   });

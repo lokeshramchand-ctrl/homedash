@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { cfg, kumaConfigured } from './config.js';
-import { col } from './db.js';
-import type { SampleDoc } from './db.js';
+import { firstSampleAfter, insertSamples, lastSampleTs, recentSamples, sampleStats } from './db.js';
+import type { SampleRow } from './db.js';
 import { HttpError, notConfigured } from './errors.js';
 import { noteMonitors } from './events.js';
 
-type Status = SampleDoc['status'];
+type Status = SampleRow['status'];
 const STATUS: Record<string, Status> = { '0': 'down', '1': 'up', '2': 'pending', '3': 'maintenance' };
 const DAY = 86_400_000;
 
@@ -50,11 +50,11 @@ async function scrape(app: FastifyInstance) {
     const items = parseMetrics(await res.text());
     snapshot = { at: Date.now(), items };
     noteMonitors(items);
-    const now = new Date();
+    const now = Date.now();
     if (items.length) {
-      await col.samples().insertMany(items.map((i) => ({
+      insertSamples(items.map((i) => ({
         monitorKey: i.key, name: i.name, url: i.url, type: i.type, status: i.status,
-        ping: i.status === 'down' ? null : i.ping, ts: now, expireAt: new Date(now.getTime() + 31 * DAY),
+        ping: i.status === 'down' ? null : i.ping, ts: now,
       })));
     }
   } catch (e) {
@@ -86,42 +86,32 @@ export async function kumaCounts(): Promise<{ up: number; down: number; pending:
 export function registerKuma(app: FastifyInstance) {
   app.get('/api/kuma/monitors', async () => {
     const items = await current();
-    const now = Date.now();
-    const since30 = new Date(now - 30 * DAY), since24 = new Date(now - DAY);
-    const up = (d: Date) => ({ $sum: { $cond: [{ $and: [{ $gte: ['$ts', d] }, { $eq: ['$status', 'up'] }] }, 1, 0] } });
-    const counted = (d: Date) => ({ $sum: { $cond: [{ $and: [{ $gte: ['$ts', d] }, { $ne: ['$status', 'maintenance'] }] }, 1, 0] } });
-    const agg = await col.samples().aggregate<{ _id: string; up30: number; n30: number; up24: number; n24: number; ping: number | null }>([
-      { $match: { ts: { $gte: since30 } } },
-      { $group: { _id: '$monitorKey', up30: up(since30), n30: counted(since30), up24: up(since24), n24: counted(since24),
-        ping: { $avg: { $cond: [{ $and: [{ $gte: ['$ts', since24] }, { $ne: ['$ping', null] }] }, '$ping', null] } } } },
-    ]).toArray();
-    const stats = new Map(agg.map((a) => [a._id, a]));
+    const stats = new Map(sampleStats(Date.now()).map((a) => [a.monitorKey, a]));
     const pct = (u: number, n: number, fallback: number) => (n ? Math.round((u / n) * 10000) / 100 : fallback);
 
-    return Promise.all(items.map(async (i) => {
+    return items.map((i) => {
       const s = stats.get(i.key);
-      const beats = (await col.samples().find({ monitorKey: i.key }).sort({ ts: -1 }).limit(30).toArray()).reverse();
+      const beats = recentSamples(i.key, 30).reverse();
       const fallback = i.status === 'up' ? 100 : 0;
       return {
         id: idOf(i.key), name: i.name, url: i.url, type: i.type, status: i.status,
         uptime24h: pct(s?.up24 ?? 0, s?.n24 ?? 0, fallback), uptime30d: pct(s?.up30 ?? 0, s?.n30 ?? 0, fallback),
         avgPing: s?.ping != null ? Math.round(s.ping) : i.ping,
         lastCheck: new Date(snapshot!.at).toISOString(),
-        heartbeats: beats.map((b) => ({ time: b.ts.toISOString(), status: b.status, ping: b.ping })),
+        heartbeats: beats.map((b) => ({ time: new Date(b.ts).toISOString(), status: b.status, ping: b.ping })),
       };
-    }));
+    });
   });
 
   app.get('/api/kuma/incidents', async () => {
     const bad = (await current()).filter((i) => i.status !== 'up');
-    return Promise.all(bad.map(async (i) => {
-      const lastUp = await col.samples().findOne({ monitorKey: i.key, status: 'up' }, { sort: { ts: -1 } });
-      const first = await col.samples().findOne({ monitorKey: i.key, ...(lastUp ? { ts: { $gt: lastUp.ts } } : {}) }, { sort: { ts: 1 } });
+    return bad.map((i) => {
+      const first = firstSampleAfter(i.key, lastSampleTs(i.key, 'up'));
       return {
         monitorId: idOf(i.key), name: i.name, status: i.status,
-        since: (first?.ts ?? new Date(snapshot!.at)).toISOString(),
+        since: new Date(first ?? snapshot!.at).toISOString(),
         message: i.status === 'down' ? 'Monitor is down' : i.status === 'pending' ? 'Monitor is retrying' : 'Under maintenance',
       };
-    }));
+    });
   });
 }

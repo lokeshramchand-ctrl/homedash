@@ -9,7 +9,7 @@ import { useQuery } from '../useQuery';
 
 const LABEL: Record<string, string> = {
   monitor: 'Uptime monitors', guest: 'Guests', host: 'Proxmox host', resources: 'Resource pressure', tasks: 'Failed tasks',
-  disks: 'Disk health', services: 'System services', db: 'MongoDB', app: 'Dashboard', auth: 'Sign-in',
+  disks: 'Disk health', services: 'System services', db: 'Database', app: 'Dashboard', auth: 'Sign-in',
 };
 
 export default function Notifications({ onBack }: { onBack: () => void }) {

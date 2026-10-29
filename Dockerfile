@@ -30,8 +30,9 @@ COPY --from=api /api/package.json ./package.json
 COPY --from=api /api/node_modules ./node_modules
 COPY --from=api /api/build ./build
 COPY --from=web /web/dist ./dist
+RUN mkdir /data && chown node /data
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s \
   CMD wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1
-CMD ["node", "build/index.js"]
+CMD ["node", "--disable-warning=ExperimentalWarning", "build/index.js"]

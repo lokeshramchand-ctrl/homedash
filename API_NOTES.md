@@ -38,13 +38,13 @@ The UI implements the contract as given. Everything below is either a **clarific
    ```
    `kumaStatusUrl` enables the "Status page" button and embed on the Uptime page. Edit it on the server without rebuilding. If you would rather have it from the API, add `GET /kuma/status-page -> {url}` and I'll switch the UI to it.
 
-## Backend storage — MongoDB (implemented in `server/`)
+## Backend storage — SQLite (implemented in `server/`)
 
 - `users` — username + scrypt password hash (created with `npm run create-user`)
-- `sessions` — sha256 of the session token, TTL index on `expiresAt`
+- `sessions` — sha256 of the session token, expires after `SESSION_TTL_HOURS`
 - `login_attempts` — 5 failures per ip+username per 15 min, then `429 RATE_LIMITED`
 - `audit` — one document per guest action `{ts, user, ip, vmid, name, action, result, taskId, reason}`
-- `kuma_samples` — scraped Kuma status/ping per monitor (31-day TTL); source of uptime %, heartbeats and incident `since`
+- `kuma_samples` — scraped Kuma status/ping per monitor (kept 31 days); source of uptime %, heartbeats and incident `since`
 
 Backend deviations from the contract: Kuma `incidents[].message` is generic (`Monitor is down`) because `/metrics` carries no message; monitor `id` is a stable hash of name+type+url.
 
@@ -58,7 +58,7 @@ Backend deviations from the contract: Kuma `incidents[].message` is generic (`Mo
 
 - `GET /logs/events?level=&source=&q=&before=&limit=` → `[{id, ts, level: info|warn|error, source: app|db|host|guest|monitor|auth, message, data}]`, newest first. Written by the backend: start/stop (and "did not shut down cleanly" when the previous run left no clean-stop marker), MongoDB up/down, Proxmox API reachable/unreachable, host reboot, guest status changes (a stop with no dashboard action is an error), Kuma monitor transitions, refused SSO logins. Events raised while MongoDB is down are buffered in memory (500 max) and written on reconnect. TTL `EVENT_RETENTION_DAYS`.
 - `GET /logs/journal?priority=&unit=&since=&boot=&kernel=&q=&limit=` → `[{ts, priority 0..7, unit, message, pid}]`, newest first. Read-only `journalctl` via execFile (no shell), every argument validated. Needs the service user in `systemd-journal`; otherwise 502/503 with `{error, code}`.
-- `GET /logs/summary` → `{boots[{index, bootId, first, last, clean: bool|null, endReason}], journalError, errors24h, lastHeartbeat, pendingEvents, processUptime}`. `clean=false` means that boot's journal ends without a shutdown sequence (power loss, reset, crash, hang).
+- `GET /logs/summary` → `{boots[{index, bootId, first, last, clean: bool|null, endReason}], journalError, errors24h, lastHeartbeat, processUptime}`. `clean=false` means that boot's journal ends without a shutdown sequence (power loss, reset, crash, hang).
 - `GET /auth/sso/config` (public) → `{enabled, label}`. `GET /auth/sso/login` redirects to Keycloak (authorization code + PKCE + nonce); `GET /auth/sso/callback` verifies the ID token (RS256 via JWKS, iss/aud/exp/nonce), checks `KEYCLOAK_ALLOWED_USERS` / `KEYCLOAK_REQUIRED_ROLE`, creates the normal session and redirects to `/` (failures go to `/?sso_error=<CODE>`). SSO users are stored as `kc:<username>` in `users`.
 
 ## Windows VM diagnostics (addition)

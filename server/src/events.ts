@@ -2,8 +2,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import { cfg, pveConfigured } from './config.js';
-import { col, dbHealth } from './db.js';
-import type { EventDoc } from './db.js';
+import { countEvents, getState, hasRecentAccepted, insertEvent, listEvents, setState } from './db.js';
+import type { EventRow } from './db.js';
 import { HttpError } from './errors.js';
 import { listGuests } from './guests.js';
 import { alertFromEvent } from './notify.js';
@@ -11,35 +11,15 @@ import { pve } from './proxmox.js';
 
 const run = promisify(execFile);
 const DAY = 86_400_000;
-type Level = EventDoc['level'];
-type Source = EventDoc['source'];
-
-// Events raised while Mongo is unreachable are held here and written once it is back.
-const pending: EventDoc[] = [];
-let flushing = false;
-
-async function flush() {
-  if (flushing || !pending.length) return;
-  flushing = true;
-  try {
-    while (pending.length) {
-      await col.events().insertOne({ ...pending[0] });
-      pending.shift();
-    }
-  } catch { /* still down; retried on the next event or heartbeat */ } finally { flushing = false; }
-}
+type Level = EventRow['level'];
+type Source = EventRow['source'];
 
 export function logEvent(level: Level, source: Source, message: string, data?: Record<string, unknown>) {
-  const ts = new Date();
-  if (pending.length >= 500) pending.shift();
-  pending.push({ ts, level, source, message, data, expireAt: new Date(ts.getTime() + cfg.eventRetentionDays * DAY) });
-  void flush();
+  try {
+    insertEvent({ ts: Date.now(), level, source, message, data: data ?? null }, cfg.eventRetentionDays);
+  } catch { /* never let logging take the dashboard down */ }
   alertFromEvent(level, source, message);
 }
-
-const setState = (id: string, value: Record<string, unknown>) =>
-  col.state().updateOne({ _id: id }, { $set: { value } }, { upsert: true });
-const getState = async (id: string) => (await col.state().findOne({ _id: id }))?.value;
 
 const fmtAgo = (ms: number) => {
   const m = Math.round(ms / 60_000);
@@ -48,8 +28,8 @@ const fmtAgo = (ms: number) => {
 
 /** Called once at startup: records the start and works out whether the last run ended cleanly. */
 async function recordStart() {
-  const hb = await getState('heartbeat');
-  const stop = await getState('clean-stop');
+  const hb = getState('heartbeat');
+  const stop = getState('clean-stop');
   const lastSeen = typeof hb?.ts === 'string' ? new Date(hb.ts) : null;
   const stoppedAt = typeof stop?.ts === 'string' ? new Date(stop.ts) : null;
   if (lastSeen && (!stoppedAt || stoppedAt < lastSeen)) {
@@ -64,11 +44,11 @@ async function hostWatch() {
   try {
     const n = await pve<{ uptime?: number }>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/status`);
     const bootedAt = Date.now() - Number(n.uptime ?? 0) * 1000;
-    const prev = await getState('host-boot');
+    const prev = getState('host-boot');
     if (typeof prev?.bootedAt === 'number' && Math.abs(bootedAt - prev.bootedAt) > 120_000 && bootedAt > prev.bootedAt) {
       logEvent('error', 'host', 'Proxmox host rebooted', { previousBoot: new Date(prev.bootedAt).toISOString(), bootedAt: new Date(bootedAt).toISOString() });
     }
-    if (!prev || Math.abs(bootedAt - Number(prev.bootedAt)) > 120_000) await setState('host-boot', { bootedAt });
+    if (!prev || Math.abs(bootedAt - Number(prev.bootedAt)) > 120_000) setState('host-boot', { bootedAt });
   } catch { /* guest watcher reports Proxmox being unreachable */ }
 }
 
@@ -83,7 +63,7 @@ async function guestWatch() {
       const was = guestState.get(g.vmid);
       if (was && was !== g.status) {
         // A stop nobody asked the dashboard for is the interesting case.
-        const recent = await col.audit().findOne({ vmid: g.vmid, result: 'accepted', ts: { $gt: new Date(Date.now() - 5 * 60_000) } });
+        const recent = hasRecentAccepted(g.vmid, Date.now() - 5 * 60_000);
         const unexpected = g.status === 'stopped' && !recent;
         logEvent(unexpected ? 'error' : 'info', 'guest', `${g.name} (${g.vmid}) ${was} → ${g.status}${unexpected ? ' (not requested via the dashboard)' : ''}`, { vmid: g.vmid, from: was, to: g.status });
       }
@@ -108,15 +88,11 @@ export function noteMonitors(items: { key: string; name: string; status: string 
 }
 
 export function startEvents(app: FastifyInstance) {
-  dbHealth.on('change', (ok: boolean, detail?: string) => {
-    app.log.warn({ ok, detail }, ok ? 'mongo reachable again' : 'mongo unreachable');
-    logEvent(ok ? 'info' : 'error', 'db', ok ? 'MongoDB reachable again' : `MongoDB unreachable: ${detail ?? 'heartbeat failed'}`);
-  });
   process.on('uncaughtException', (e) => { app.log.fatal(e, 'uncaughtException'); logEvent('error', 'app', `Uncaught exception: ${e.message}`); });
   process.on('unhandledRejection', (e) => { app.log.error(e, 'unhandledRejection'); logEvent('error', 'app', `Unhandled rejection: ${(e as Error)?.message ?? e}`); });
 
   void recordStart();
-  const beat = () => { void setState('heartbeat', { ts: new Date().toISOString() }).catch(() => {}); void flush(); };
+  const beat = () => { try { setState('heartbeat', { ts: new Date().toISOString() }); } catch { /* retried on the next beat */ } };
   beat();
   setInterval(beat, 30_000).unref();
   setInterval(() => void guestWatch(), 15_000).unref();
@@ -128,12 +104,7 @@ export function startEvents(app: FastifyInstance) {
 /** Marks a deliberate stop so the next start is not reported as a crash. */
 export async function recordCleanStop() {
   logEvent('info', 'app', 'Dashboard stopping (signal)');
-  try {
-    await Promise.race([
-      (async () => { await flush(); await setState('clean-stop', { ts: new Date().toISOString() }); })(),
-      new Promise((r) => setTimeout(r, 2000)),
-    ]);
-  } catch { /* db already gone */ }
+  try { setState('clean-stop', { ts: new Date().toISOString() }); } catch { /* db already gone */ }
 }
 
 // ---------- host journal (read-only, journalctl via execFile: no shell) ----------
@@ -201,13 +172,12 @@ export function registerLogs(app: FastifyInstance) {
   app.get<{ Querystring: { level?: string; source?: string; before?: string; q?: string; limit?: string } }>('/api/logs/events', async (req) => {
     const { level, source, before, q } = req.query;
     const limit = Math.min(Math.max(parseInt(req.query.limit ?? '100', 10) || 100, 1), 500);
-    const f: Record<string, unknown> = {};
-    if (level && ['info', 'warn', 'error'].includes(level)) f.level = level;
-    if (source && /^[a-z]{2,10}$/.test(source)) f.source = source;
-    if (before && !Number.isNaN(Date.parse(before))) f.ts = { $lt: new Date(before) };
-    if (q) f.message = { $regex: q.slice(0, 80).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-    const rows = await col.events().find(f).sort({ ts: -1 }).limit(limit).toArray();
-    return rows.map((r) => ({ id: String(r._id), ts: r.ts.toISOString(), level: r.level, source: r.source, message: r.message, data: r.data ?? null }));
+    return listEvents({
+      level: level && ['info', 'warn', 'error'].includes(level) ? level : undefined,
+      source: source && /^[a-z]{2,10}$/.test(source) ? source : undefined,
+      before: before && !Number.isNaN(Date.parse(before)) ? Date.parse(before) : undefined,
+      q: q?.slice(0, 80), limit,
+    }).map((r) => ({ id: String(r.id), ts: new Date(r.ts).toISOString(), level: r.level, source: r.source, message: r.message, data: r.data }));
   });
 
   app.get<{ Querystring: { priority?: string; unit?: string; since?: string; boot?: string; q?: string; kernel?: string; limit?: string } }>('/api/logs/journal', async (req) => {
@@ -238,17 +208,14 @@ export function registerLogs(app: FastifyInstance) {
 
   // One-call answer to "why did it go offline": boot history + what the last boots ended with + current watch state.
   app.get('/api/logs/summary', async () => {
-    const [bootList, errs24h] = await Promise.all([
-      boots().catch((e) => ({ error: (e as Error).message })),
-      col.events().countDocuments({ level: 'error', ts: { $gt: new Date(Date.now() - DAY) } }),
-    ]);
-    const hb = await getState('heartbeat');
+    const bootList = await boots().catch((e) => ({ error: (e as Error).message }));
+    const errs24h = countEvents('error', Date.now() - DAY);
+    const hb = getState('heartbeat');
     return {
       boots: Array.isArray(bootList) ? bootList : [],
       journalError: Array.isArray(bootList) ? null : bootList.error,
       errors24h: errs24h,
       lastHeartbeat: typeof hb?.ts === 'string' ? hb.ts : null,
-      pendingEvents: pending.length,
       processUptime: Math.round(process.uptime()),
     };
   });

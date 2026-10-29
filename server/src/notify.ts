@@ -2,8 +2,8 @@
 // host resources, failed Proxmox tasks, disk health and stopped PVE services.
 import type { FastifyInstance } from 'fastify';
 import { cfg, ntfyConfigured, pveConfigured } from './config.js';
-import { col } from './db.js';
-import type { EventDoc } from './db.js';
+import { getState, setState } from './db.js';
+import type { EventRow } from './db.js';
 import { HttpError, notConfigured } from './errors.js';
 import { recentHardwareErrors } from './diagnostics.js';
 import { logEvent } from './events.js';
@@ -23,9 +23,9 @@ const DEDUPE_MS = 10 * 60_000, MAX_PER_HOUR = 40;
 
 async function loadSettings() {
   try {
-    const v = (await col.state().findOne({ _id: 'notify-settings' }))?.value as Partial<Settings> | undefined;
+    const v = getState('notify-settings') as Partial<Settings> | undefined;
     if (v) settings = { ...DEFAULTS, ...v, categories: { ...DEFAULTS.categories, ...(v.categories ?? {}) } };
-  } catch { /* keep defaults while Mongo is down */ }
+  } catch { /* keep defaults if the database is unavailable */ }
 }
 
 async function publish(title: string, message: string, priority: number, tags: string[]) {
@@ -39,7 +39,7 @@ async function publish(title: string, message: string, priority: number, tags: s
 }
 
 /** Queue one alert. Duplicate keys within 10 minutes and anything past the hourly cap are dropped. */
-export function alert(category: Category, level: EventDoc['level'], title: string, message: string, key = `${category}|${title}|${message}`) {
+export function alert(category: Category, level: EventRow['level'], title: string, message: string, key = `${category}|${title}|${message}`) {
   if (!ntfyConfigured() || !settings.enabled || !settings.categories[category]) return;
   if (level === 'info' && !settings.recoveries) return;
   if (settings.mutedUntil && new Date(settings.mutedUntil).getTime() > Date.now()) return;
@@ -57,9 +57,9 @@ export function alert(category: Category, level: EventDoc['level'], title: strin
   });
 }
 
-const TITLES: Record<EventDoc['source'], string> = { app: 'Dashboard', db: 'MongoDB', host: 'Proxmox host', guest: 'Guest', monitor: 'Uptime monitor', auth: 'Sign-in' };
+const TITLES: Record<EventRow['source'], string> = { app: 'Dashboard', db: 'Database', host: 'Proxmox host', guest: 'Guest', monitor: 'Uptime monitor', auth: 'Sign-in' };
 /** Called by logEvent for every system event. */
-export function alertFromEvent(level: EventDoc['level'], source: EventDoc['source'], message: string) {
+export function alertFromEvent(level: EventRow['level'], source: EventRow['source'], message: string) {
   if (level === 'info') {
     // Only recoveries are worth a push; routine info (starts, requested guest actions) is not.
     const recovery = /reachable again|down → up$/.test(message);
@@ -176,7 +176,7 @@ export function registerNotify(app: FastifyInstance) {
       next.categories = { ...next.categories };
       for (const c of CATEGORIES) if (typeof b.categories[c] === 'boolean') next.categories[c] = b.categories[c];
     }
-    await col.state().updateOne({ _id: 'notify-settings' }, { $set: { value: next as unknown as Record<string, unknown> } }, { upsert: true });
+    setState('notify-settings', next as unknown as Record<string, unknown>);
     settings = next;
     req.log.info({ user: req.user?.username }, 'notify settings changed');
     return next;

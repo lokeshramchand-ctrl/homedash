@@ -2,7 +2,7 @@ import { createHash, createPublicKey, randomBytes, verify } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { createSession } from './auth.js';
 import { cfg, keycloakConfigured } from './config.js';
-import { col } from './db.js';
+import { saveOidc, takeOidc, upsertSsoUser } from './db.js';
 import { HttpError } from './errors.js';
 import { logEvent } from './events.js';
 
@@ -89,7 +89,7 @@ export function registerOidc(app: FastifyInstance) {
     const state = randomBytes(24).toString('base64url');
     const verifier = randomBytes(48).toString('base64url');
     const nonce = randomBytes(24).toString('base64url');
-    await col.oidc().insertOne({ _id: sha256(state), verifier, nonce, expireAt: new Date(Date.now() + 10 * 60_000) });
+    saveOidc(sha256(state), verifier, nonce, 10 * 60_000);
     let d: Discovery;
     try { d = await discovery(); } catch (e) {
       req.log.error({ err: (e as Error).message }, 'keycloak discovery failed');
@@ -116,7 +116,7 @@ export function registerOidc(app: FastifyInstance) {
     const { code, state, error } = req.query;
     if (error) return fail('SSO_DENIED', error);
     if (!code || !state || state !== req.cookies[STATE_COOKIE]) return fail('SSO_STATE');
-    const saved = await col.oidc().findOneAndDelete({ _id: sha256(state), expireAt: { $gt: new Date() } });
+    const saved = takeOidc(sha256(state));
     if (!saved) return fail('SSO_STATE');
 
     let claims: Claims;
@@ -139,13 +139,8 @@ export function registerOidc(app: FastifyInstance) {
     if (denied) return fail(denied, display);
 
     const username = `kc:${display}`.toLowerCase().slice(0, 64);
-    const user = await col.users().findOneAndUpdate(
-      { ssoSub: `${kc.issuer}|${claims.sub}` },
-      { $set: { username, lastLoginAt: new Date() }, $setOnInsert: { passwordHash: '', createdAt: new Date() } },
-      { upsert: true, returnDocument: 'after' },
-    );
-    if (!user) return fail('SSO_FAILED', 'user upsert failed');
-    await createSession(req, reply, user._id, user.username);
+    const user = upsertSsoUser(`${kc.issuer}|${claims.sub}`, username);
+    await createSession(req, reply, user.id, user.username);
     reply.clearCookie(STATE_COOKIE, { path: '/api/auth/sso' });
     req.log.info({ username: user.username, ip: req.ip }, 'login (keycloak)');
     return reply.redirect('/');

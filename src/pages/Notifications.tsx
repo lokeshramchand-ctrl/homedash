@@ -16,7 +16,7 @@ const LABEL: Record<string, [string, string]> = {
   hardware: ['Hardware errors', 'PCIe AER, machine checks, disk I/O errors, process crashes'],
   disks: ['Disk health', 'S.M.A.R.T. failure or SSD wearout under 10%'],
   services: ['System services', 'An enabled PVE service is not running'],
-  db: ['MongoDB', 'Database connection lost or restored'],
+  db: ['Database', 'Database connection lost or restored'],
   app: ['Dashboard', 'Crash, unclean shutdown, uncaught errors'],
   auth: ['Sign-in', 'Refused single sign-on attempts'],
 };

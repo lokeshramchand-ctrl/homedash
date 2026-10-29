@@ -1,7 +1,7 @@
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import { cfg } from './config.js';
-import { col } from './db.js';
+import { insertAudit } from './db.js';
 import { HttpError } from './errors.js';
 import { parseTimeframe, rrdRows, UPID } from './node.js';
 import { pve } from './proxmox.js';
@@ -110,9 +110,9 @@ export function registerGuests(app: FastifyInstance) {
     const action = req.params.action as Action;
     if (!ACTIONS.includes(action)) throw new HttpError(404, 'NOT_FOUND', `Unknown action ${req.params.action}`);
     const user = req.user!.username;
-    const base = { ts: new Date(), user, ip: req.ip, vmid, action };
+    const base = { ts: Date.now(), user, ip: req.ip, vmid, action };
     const refuse = async (status: number, code: string, msg: string, name?: string) => {
-      await col.audit().insertOne({ ...base, name, result: 'refused', reason: code });
+      insertAudit({ ...base, name, result: 'refused', reason: code });
       req.log.warn({ user, vmid, action, code }, 'guest action refused');
       throw new HttpError(status, code, msg);
     };
@@ -129,11 +129,11 @@ export function registerGuests(app: FastifyInstance) {
 
     try {
       const taskId = await pve<string>('POST', `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${vmid}/status/${action}`);
-      await col.audit().insertOne({ ...base, name: g.name, result: 'accepted', taskId });
+      insertAudit({ ...base, name: g.name, result: 'accepted', taskId });
       req.log.info({ user, vmid, action, taskId }, 'guest action');
       return { taskId };
     } catch (e) {
-      await col.audit().insertOne({ ...base, name: g.name, result: 'error', reason: (e as Error).message });
+      insertAudit({ ...base, name: g.name, result: 'error', reason: (e as Error).message });
       throw e;
     }
   });
