@@ -1,0 +1,10 @@
+# Add this job to the `scrape_configs:` list in prometheus.yml.
+# Replace HOMEDASH_IP and the token (the METRICS_TOKEN value from /opt/homedash/.env).
+- job_name: homedash
+  scrape_interval: 30s
+  metrics_path: /metrics
+  authorization:
+    type: Bearer
+    credentials: CHANGE_ME_METRICS_TOKEN
+  static_configs:
+    - targets: ['HOMEDASH_IP:3000']

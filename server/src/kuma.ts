@@ -74,6 +74,9 @@ async function current(): Promise<Scraped[]> {
   return snapshot.items;
 }
 
+/** Last scraped monitors, or an empty list before the first scrape / when Kuma is not configured. */
+export const kumaSnapshot = (): Scraped[] => snapshot?.items ?? [];
+
 export async function kumaCounts(): Promise<{ up: number; down: number; pending: number }> {
   const items = await current();
   return {

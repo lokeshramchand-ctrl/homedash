@@ -83,6 +83,8 @@ export const cfg = {
     label: env('AI_LABEL'), // display name, e.g. "Ollama · llama3.1"
   },
 
+  metricsToken: env('METRICS_TOKEN'), // bearer token for GET /metrics (Prometheus/Grafana); empty = endpoint disabled
+
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)
 };
 
