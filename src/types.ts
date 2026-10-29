@@ -39,6 +39,14 @@ export interface NginxSite {
   url: string;
 }
 
+export interface NginxManage { enabled: boolean; dir: string; version: string | null }
+export interface NginxDetail { file: string; managed: boolean; cert: string | null; certExpires: string | null }
+export interface NginxSpec {
+  serverNames: string[]; upstream: string; websocket?: boolean; tls?: 'none' | 'selfsigned' | 'existing';
+  certPath?: string; keyPath?: string; redirectHttp?: boolean; hsts?: boolean; maxBody?: string; file?: string;
+}
+export interface NginxApplied { file: string; backup: string | null; test: string; reloaded: boolean; reloadError: string | null }
+
 export interface GrafanaDashboard {
   uid: string;
   title: string;

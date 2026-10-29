@@ -44,6 +44,8 @@ export const cfg = {
   hostPowerEnabled: bool('HOST_POWER_ENABLED', false), // allow POST /api/host/shutdown (powers off the whole Proxmox node)
 
   nginxDir: env('NGINX_SITES_DIR', '/etc/nginx/sites-enabled'),
+  nginxManage: bool('NGINX_MANAGE', false), // allow creating/editing/deleting sites from the UI (needs nginx in this container)
+  nginxBin: env('NGINX_BIN', 'nginx'),
 
   grafanaUrl: trim(env('GRAFANA_URL')), // how the backend reaches Grafana
   grafanaPublicUrl: trim(env('GRAFANA_PUBLIC_URL') || env('GRAFANA_URL')), // what the browser opens/embeds

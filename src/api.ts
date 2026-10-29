@@ -1,6 +1,6 @@
 import type {
   AppConfig, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
-  JournalLine, LogSummary, NginxSite, Overview, PromResult, SsoConfig, SystemEvent, Task,
+  JournalLine, LogSummary, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
 
@@ -48,6 +48,8 @@ const qs = (p: Record<string, string | undefined>) => {
 };
 const get = <T,>(p: string) => req<T>('GET', p);
 const post = <T,>(p: string, b?: unknown) => req<T>('POST', p, b ?? {});
+const put = <T,>(p: string, b?: unknown) => req<T>('PUT', p, b ?? {});
+const del = <T,>(p: string) => req<T>('DELETE', p);
 
 export const api = {
   login: (username: string, password: string) => post<unknown>('/auth/login', { username, password }),
@@ -85,6 +87,17 @@ export const api = {
   notifySettings: (s: Partial<NotifySettings>) => post<NotifySettings>('/notify/settings', s),
   notifyTest: () => post<{ ok: true }>('/notify/test'),
   nginx: () => get<NginxSite[]>('/nginx/sites'),
+  nginxManage: () => get<NginxManage>('/nginx/manage'),
+  nginxDetails: () => get<NginxDetail[]>('/nginx/details'),
+  nginxPreview: (s: NginxSpec) => post<{ file: string; content: string }>('/nginx/preview', s),
+  nginxCreate: (s: NginxSpec) => post<NginxApplied>('/nginx/sites', s),
+  nginxFile: (file: string) => get<{ file: string; content: string; editable: boolean }>(`/nginx/sites/${encodeURIComponent(file)}`),
+  nginxSave: (file: string, content: string) => put<NginxApplied>(`/nginx/sites/${encodeURIComponent(file)}`, { content }),
+  nginxDelete: (file: string) => del<NginxApplied>(`/nginx/sites/${encodeURIComponent(file)}`),
+  nginxBackups: (file: string) => get<string[]>(`/nginx/sites/${encodeURIComponent(file)}/backups`),
+  nginxRestore: (file: string, backup: string) => post<NginxApplied>(`/nginx/sites/${encodeURIComponent(file)}/restore`, { backup }),
+  nginxTest: () => post<{ ok: boolean; output: string }>('/nginx/test'),
+  nginxReload: () => post<{ ok: boolean }>('/nginx/reload'),
   dashboards: () => get<GrafanaDashboard[]>('/grafana/dashboards'),
   panels: (uid: string) => get<GrafanaPanel[]>(`/grafana/panels/${encodeURIComponent(uid)}`),
   query: (query: string, start: number, end: number, step: number) =>
