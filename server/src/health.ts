@@ -29,7 +29,10 @@ const CHECKS: { id: string; title: string; run: () => Promise<Result> }[] = [
   {
     id: 'updates', title: 'Pending package updates',
     run: async () => {
-      const pkgs = await pve<{ Package: string }[]>('GET', `${node()}/apt/update`);
+      const pkgs = await pve<{ Package: string }[]>('GET', `${node()}/apt/update`).catch((e: Error) => {
+        if (/403|permission/i.test(e.message)) throw new Error('Proxmox only lists pending updates to tokens with Sys.Modify; a read-only token cannot, so this check stays Unknown');
+        throw e;
+      });
       if (!pkgs.length) return ok('Everything is up to date');
       return { status: 'warn', detail: `${pkgs.length} package${pkgs.length === 1 ? '' : 's'} can be updated`, hint: 'Node → Updates in the Proxmox UI, or apt update && apt dist-upgrade on the host.' };
     },
@@ -121,7 +124,7 @@ export async function runHealth(force = false) {
   const checks: Check[] = await Promise.all(CHECKS.map(async (c) => {
     try { return { id: c.id, title: c.title, ...(await c.run()) }; } catch (e) {
       const msg = (e as Error).message;
-      return { id: c.id, title: c.title, status: 'unknown' as const, detail: /403|permission/i.test(msg) ? 'The API token lacks permission for this check' : msg.slice(0, 160) };
+      return { id: c.id, title: c.title, status: 'unknown' as const, detail: /Sys\.Modify/.test(msg) ? msg : /403|permission/i.test(msg) ? 'The API token lacks permission for this check' : msg.slice(0, 160) };
     }
   }));
   for (const c of checks) {

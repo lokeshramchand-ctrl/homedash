@@ -27,6 +27,9 @@ export async function pool<T, R>(items: T[], limit: number, fn: (x: T) => Promis
 export type IpSource = 'agent' | 'runtime' | 'config';
 export interface GuestNet { vmid: number; name: string; type: 'lxc' | 'qemu'; status: Guest['status']; ips: { ip: string; source: IpSource }[]; macs: string[]; bridges: string[] }
 
+/** Loopback and unset addresses (00:00:00:00:00:00) say nothing about a guest and would match every other guest. */
+export const isRealMac = (mac: string) => /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(mac) && !/^(00:){5}00$/i.test(mac);
+
 const isUsableIp = (ip: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) && !ip.startsWith('127.') && !ip.startsWith('169.254.');
 
 /** Pulls static addresses, MACs and bridges out of a guest config (net0/ipconfig0 lines). */
@@ -38,7 +41,7 @@ export function parseNetConfig(conf: Record<string, unknown>): { ips: string[]; 
       const [key, val] = part.split('=');
       if (!val) continue;
       if (key === 'ip') { const ip = val.split('/')[0]; if (isUsableIp(ip)) ips.add(ip); }
-      else if (key === 'hwaddr' || /^(virtio|e1000|rtl8139|vmxnet3|e1000e)$/.test(key)) macs.add(val.toLowerCase());
+      else if ((key === 'hwaddr' || /^(virtio|e1000|rtl8139|vmxnet3|e1000e)$/.test(key)) && isRealMac(val)) macs.add(val.toLowerCase());
       else if (key === 'bridge') bridges.add(val);
     }
   }
@@ -75,7 +78,7 @@ async function guestNet(g: Guest): Promise<GuestNet> {
     try {
       if (g.type === 'lxc') {
         const rows = await pve<{ name: string; inet?: string; hwaddr?: string }[]>('GET', `${base}/interfaces`);
-        for (const r of rows) { const ip = r.inet?.split('/')[0]; if (ip && isUsableIp(ip)) ips.set(ip, 'runtime'); if (r.hwaddr) macs.push(r.hwaddr.toLowerCase()); }
+        for (const r of rows) { const ip = r.inet?.split('/')[0]; if (ip && isUsableIp(ip)) ips.set(ip, 'runtime'); if (r.hwaddr && r.name !== 'lo' && isRealMac(r.hwaddr)) macs.push(r.hwaddr.toLowerCase()); }
       } else {
         const r = await pve<{ result?: { name: string; 'ip-addresses'?: { 'ip-address': string; 'ip-address-type': string }[] }[] }>('GET', `${base}/agent/network-get-interfaces`);
         for (const i of r.result ?? []) for (const a of i['ip-addresses'] ?? []) if (a['ip-address-type'] === 'ipv4' && isUsableIp(a['ip-address'])) ips.set(a['ip-address'], 'agent');

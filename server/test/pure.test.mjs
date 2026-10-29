@@ -75,3 +75,11 @@ test('scene and schedule validation', () => {
   assert.throws(() => validateSchedule({ name: 'x', time: '07:00', days: [1] }));
   assert.equal(validateSchedule({ name: 'x', time: '07:00', days: [1, 1, 3], vmid: 1, action: 'stop' }).days.length, 2);
 });
+
+import { isRealMac } from '../build/insights.js';
+test('loopback and unset MAC addresses are ignored', () => {
+  assert.equal(isRealMac('00:00:00:00:00:00'), false);
+  assert.equal(isRealMac('bc:24:11:00:00:01'), true);
+  assert.equal(isRealMac('garbage'), false);
+  assert.deepEqual(parseNetConfig({ net0: 'name=lo,hwaddr=00:00:00:00:00:00' }).macs, []);
+});
