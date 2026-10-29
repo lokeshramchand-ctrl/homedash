@@ -3,6 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { cfg, pveConfigured } from './config.js';
 import { countEvents, dbOk } from './db.js';
 import { listGuests } from './guests.js';
+import { runHealth } from './health.js';
+import { buildCapacity, buildProtection } from './insights.js';
 import { kumaSnapshot } from './kuma.js';
 import { listSites } from './nginx.js';
 import { pve } from './proxmox.js';
@@ -69,6 +71,23 @@ export function registerMetrics(app: FastifyInstance) {
       }
     }
 
+    if (pveConfigured()) {
+      const [health, cap, prot] = await Promise.allSettled([runHealth(), buildCapacity(), buildProtection()]);
+      if (health.status === 'fulfilled') r.add('homedash_health_score', 'Overall health score, 0..100.', 'gauge', health.value.score);
+      if (cap.status === 'fulfilled') {
+        for (const s of cap.value.storages) {
+          const l = { storage: s.storage };
+          r.add('homedash_storage_used_ratio', 'Storage pool used, 0..1.', 'gauge', s.usedRatio, l);
+          if (s.daysToFull !== null) r.add('homedash_storage_days_to_full', 'Forecast days until the storage is full.', 'gauge', s.daysToFull, l);
+        }
+        r.add('homedash_memory_available_for_guests_bytes', 'RAM not yet promised to running guests (after the host reserve).', 'gauge', cap.value.host.availableMem);
+      }
+      if (prot.status === 'fulfilled') {
+        r.add('homedash_guests_without_backup', 'Guests with no backup at all.', 'gauge', prot.value.summary.never);
+        r.add('homedash_guests_stale_backup', 'Guests whose newest backup is too old.', 'gauge', prot.value.summary.stale);
+        r.add('homedash_guests_old_snapshots', 'Guests holding a snapshot older than the limit.', 'gauge', prot.value.summary.oldSnapshots);
+      }
+    }
     for (const m of kumaSnapshot()) {
       const l = { monitor: m.name, type: m.type };
       r.add('homedash_monitor_up', '1 when the Uptime Kuma monitor is up.', 'gauge', m.status === 'up' ? 1 : 0, l);

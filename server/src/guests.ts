@@ -10,8 +10,8 @@ export interface Guest {
   vmid: number; name: string; type: 'lxc' | 'qemu'; status: 'running' | 'stopped' | 'paused';
   cpu: number; memUsed: number; memMax: number; uptime: number; protected: boolean; tags: string[]; conflicts: number[]; featured: boolean;
 }
-type Action = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | 'suspend' | 'resume';
-const ACTIONS: Action[] = ['start', 'shutdown', 'stop', 'reboot', 'reset', 'suspend', 'resume'];
+export type Action = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | 'suspend' | 'resume';
+export const ACTIONS: Action[] = ['start', 'shutdown', 'stop', 'reboot', 'reset', 'suspend', 'resume'];
 const QEMU_ONLY: Action[] = ['reset', 'suspend', 'resume'];
 // Which current status each action is valid from (paused = a suspended QEMU guest).
 const FROM: Record<Action, Guest['status'][]> = {
@@ -43,6 +43,32 @@ export async function listGuests(): Promise<Guest[]> {
   return [...lxc.map((r) => map('lxc', r)), ...qemu.filter((r) => !r.template).map((r) => map('qemu', r))]
     .filter((g) => cfg.allowedVmids.size === 0 || cfg.allowedVmids.has(g.vmid))
     .sort((a, b) => a.vmid - b.vmid);
+}
+
+/** Validates and performs one power action; shared by the guest routes, scenes and schedules. Returns the Proxmox task id. */
+export async function performGuestAction(vmid: number, action: Action, user: string, ip: string): Promise<string> {
+  const base = { ts: Date.now(), user, ip, vmid, action };
+  const refuse = (status: number, code: string, msg: string, name?: string): never => {
+    insertAudit({ ...base, name, result: 'refused', reason: code });
+    throw new HttpError(status, code, msg);
+  };
+  const g = (await listGuests()).find((x) => x.vmid === vmid);
+  if (!g) return refuse(404, 'NOT_FOUND', `Guest ${vmid} does not exist or is not allowed`);
+  if (g.protected) return refuse(403, 'PROTECTED', `Guest ${vmid} (${g.name}) is protected`, g.name);
+  if (QEMU_ONLY.includes(action) && g.type !== 'qemu') return refuse(400, 'UNSUPPORTED', `${action} is only available for virtual machines`, g.name);
+  if (!FROM[action].includes(g.status)) {
+    if (action === 'start') return refuse(409, g.status === 'paused' ? 'PAUSED' : 'ALREADY_RUNNING', g.status === 'paused' ? `${g.name} is suspended; resume it instead` : `${g.name} is already running`, g.name);
+    if (action === 'resume') return refuse(409, 'NOT_PAUSED', `${g.name} is not suspended`, g.name);
+    return refuse(409, 'NOT_RUNNING', `${g.name} is not running`, g.name);
+  }
+  try {
+    const taskId = await pve<string>('POST', `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${vmid}/status/${action}`);
+    insertAudit({ ...base, name: g.name, result: 'accepted', taskId });
+    return taskId;
+  } catch (e) {
+    insertAudit({ ...base, name: g.name, result: 'error', reason: (e as Error).message });
+    throw e;
+  }
 }
 
 const parseVmid = (v: string) => {
@@ -106,36 +132,36 @@ export function registerGuests(app: FastifyInstance) {
   });
 
   app.post<{ Params: { vmid: string; action: string } }>('/api/guests/:vmid/:action', async (req) => {
-    const vmid = parseVmid(req.params.vmid);
     const action = req.params.action as Action;
     if (!ACTIONS.includes(action)) throw new HttpError(404, 'NOT_FOUND', `Unknown action ${req.params.action}`);
+    return { taskId: await performGuestAction(parseVmid(req.params.vmid), action, req.user!.username, req.ip) };
+  });
+
+  const SNAP_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,38}$/;
+  app.post<{ Params: { vmid: string }; Body: { name?: string; description?: string } }>('/api/guests/:vmid/snapshots', async (req) => {
+    const g = await findGuest(req.params.vmid);
+    const name = String(req.body?.name ?? `homedash-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`);
+    if (!SNAP_NAME.test(name)) throw new HttpError(400, 'BAD_REQUEST', 'Snapshot name: letters, digits, dash, underscore; must start with a letter');
     const user = req.user!.username;
-    const base = { ts: Date.now(), user, ip: req.ip, vmid, action };
-    const refuse = async (status: number, code: string, msg: string, name?: string) => {
-      insertAudit({ ...base, name, result: 'refused', reason: code });
-      req.log.warn({ user, vmid, action, code }, 'guest action refused');
-      throw new HttpError(status, code, msg);
-    };
-
-    const g = (await listGuests()).find((x) => x.vmid === vmid);
-    if (!g) return refuse(404, 'NOT_FOUND', `Guest ${vmid} does not exist or is not allowed`);
-    if (g.protected) return refuse(403, 'PROTECTED', `Guest ${vmid} (${g.name}) is protected`, g.name);
-    if (QEMU_ONLY.includes(action) && g.type !== 'qemu') return refuse(400, 'UNSUPPORTED', `${action} is only available for virtual machines`, g.name);
-    if (!FROM[action].includes(g.status)) {
-      if (action === 'start') return refuse(409, g.status === 'paused' ? 'PAUSED' : 'ALREADY_RUNNING', g.status === 'paused' ? `${g.name} is suspended; resume it instead` : `${g.name} is already running`, g.name);
-      if (action === 'resume') return refuse(409, 'NOT_PAUSED', `${g.name} is not suspended`, g.name);
-      return refuse(409, 'NOT_RUNNING', `${g.name} is not running`, g.name);
-    }
-
+    const base = { ts: Date.now(), user, ip: req.ip, vmid: g.vmid, name: g.name, action: 'snapshot' };
     try {
-      const taskId = await pve<string>('POST', `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${vmid}/status/${action}`);
-      insertAudit({ ...base, name: g.name, result: 'accepted', taskId });
-      req.log.info({ user, vmid, action, taskId }, 'guest action');
+      const taskId = await pve<string>('POST', `${guestPath(g)}/snapshot`, { snapname: name, description: String(req.body?.description ?? 'Created by homedash').slice(0, 200) });
+      insertAudit({ ...base, result: 'accepted', taskId });
+      return { taskId, name };
+    } catch (e) { insertAudit({ ...base, result: 'error', reason: (e as Error).message }); throw e; }
+  });
+
+  app.delete<{ Params: { vmid: string; name: string } }>('/api/guests/:vmid/snapshots/:name', async (req) => {
+    const g = await findGuest(req.params.vmid);
+    if (!SNAP_NAME.test(req.params.name)) throw new HttpError(400, 'BAD_REQUEST', 'Invalid snapshot name');
+    const user = req.user!.username;
+    const base = { ts: Date.now(), user, ip: req.ip, vmid: g.vmid, name: g.name, action: `snapshot-delete:${req.params.name}` };
+    if (g.protected) { insertAudit({ ...base, result: 'refused', reason: 'PROTECTED' }); throw new HttpError(403, 'PROTECTED', `Guest ${g.vmid} (${g.name}) is protected`); }
+    try {
+      const taskId = await pve<string>('DELETE', `${guestPath(g)}/snapshot/${encodeURIComponent(req.params.name)}`);
+      insertAudit({ ...base, result: 'accepted', taskId });
       return { taskId };
-    } catch (e) {
-      insertAudit({ ...base, name: g.name, result: 'error', reason: (e as Error).message });
-      throw e;
-    }
+    } catch (e) { insertAudit({ ...base, result: 'error', reason: (e as Error).message }); throw e; }
   });
 
   app.get<{ Params: { taskId: string } }>('/api/tasks/:taskId', async (req) => {

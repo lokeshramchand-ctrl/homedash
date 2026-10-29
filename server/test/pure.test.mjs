@@ -54,3 +54,23 @@ test('nginx spec validation blocks injection', () => {
   assert.throws(() => validateSpec({ serverNames: ['a.lan'], upstream: 'http://10.0.0.1', tls: 'existing', certPath: '/etc/x;y', keyPath: '/k' }));
   assert.match(renderSite({ serverNames: ['a.lan'], upstream: 'http://10.0.0.1:80' }), /proxy_pass http:\/\/10\.0\.0\.1:80;/);
 });
+
+import { isDue, validateSteps, validateSchedule } from '../build/scenes.js';
+test('schedules fire once per minute on the right weekday', () => {
+  const mon = new Date(2026, 9, 26, 7, 30, 5); // Monday 07:30
+  assert.equal(isDue({ days: [1], time: '07:30', enabled: true, lastRun: null }, mon), true);
+  assert.equal(isDue({ days: [2], time: '07:30', enabled: true, lastRun: null }, mon), false);
+  assert.equal(isDue({ days: [1], time: '07:31', enabled: true, lastRun: null }, mon), false);
+  assert.equal(isDue({ days: [1], time: '07:30', enabled: false, lastRun: null }, mon), false);
+  assert.equal(isDue({ days: [1], time: '07:30', enabled: true, lastRun: mon.getTime() - 20_000 }, mon), false);
+});
+test('scene and schedule validation', () => {
+  assert.throws(() => validateSteps([]));
+  assert.throws(() => validateSteps([{ vmid: 1, action: 'destroy' }]));
+  assert.throws(() => validateSteps([{ vmid: 1, action: 'start', waitSeconds: 99999 }]));
+  assert.equal(validateSteps([{ vmid: 100, action: 'start', waitSeconds: 5 }])[0].waitSeconds, 5);
+  assert.throws(() => validateSchedule({ name: 'x', time: '25:00', days: [1], vmid: 1, action: 'start' }));
+  assert.throws(() => validateSchedule({ name: 'x', time: '07:00', days: [], vmid: 1, action: 'start' }));
+  assert.throws(() => validateSchedule({ name: 'x', time: '07:00', days: [1] }));
+  assert.equal(validateSchedule({ name: 'x', time: '07:00', days: [1, 1, 3], vmid: 1, action: 'stop' }).days.length, 2);
+});

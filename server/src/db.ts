@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS system_events (
 );
 CREATE INDEX IF NOT EXISTS events_ts ON system_events (ts DESC);
 CREATE TABLE IF NOT EXISTS system_state (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS scenes (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, steps TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, scene_id INTEGER, vmid INTEGER, action TEXT,
+  days TEXT NOT NULL, time TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_run INTEGER, last_result TEXT
+);
 CREATE TABLE IF NOT EXISTS oidc_states (id TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL);
 `;
 
@@ -218,3 +223,38 @@ export function takeOidc(id: string): { verifier: string; nonce: string } | null
   d.prepare('DELETE FROM oidc_states WHERE id = ?').run(id);
   return r ?? null;
 }
+
+// ---- scenes and schedules ----------------------------------------------------------------------
+export interface SceneStep { vmid: number; action: 'start' | 'shutdown' | 'stop' | 'reboot'; waitSeconds: number; continueOnError: boolean }
+export interface SceneRow { id: number; name: string; steps: SceneStep[] }
+export interface ScheduleRow {
+  id: number; name: string; sceneId: number | null; vmid: number | null; action: string | null;
+  days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null;
+}
+
+const sceneOf = (r: any): SceneRow => ({ id: r.id, name: r.name, steps: JSON.parse(r.steps) });
+export const listScenes = (): SceneRow[] => (d.prepare('SELECT * FROM scenes ORDER BY name').all() as any[]).map(sceneOf);
+export const getScene = (id: number): SceneRow | null => { const r = d.prepare('SELECT * FROM scenes WHERE id = ?').get(id); return r ? sceneOf(r) : null; };
+export const saveScene = (id: number | null, name: string, steps: SceneStep[]): number => {
+  if (id === null) return Number(d.prepare('INSERT INTO scenes (name, steps, created_at) VALUES (?, ?, ?)').run(name, JSON.stringify(steps), Date.now()).lastInsertRowid);
+  d.prepare('UPDATE scenes SET name = ?, steps = ? WHERE id = ?').run(name, JSON.stringify(steps), id);
+  return id;
+};
+export const deleteScene = (id: number) => {
+  d.prepare('DELETE FROM schedules WHERE scene_id = ?').run(id);
+  d.prepare('DELETE FROM scenes WHERE id = ?').run(id);
+};
+
+const schedOf = (r: any): ScheduleRow => ({
+  id: r.id, name: r.name, sceneId: r.scene_id, vmid: r.vmid, action: r.action, days: String(r.days).split(',').filter(Boolean).map(Number),
+  time: r.time, enabled: !!r.enabled, lastRun: r.last_run, lastResult: r.last_result,
+});
+export const listSchedules = (): ScheduleRow[] => (d.prepare('SELECT * FROM schedules ORDER BY time, name').all() as any[]).map(schedOf);
+export const saveSchedule = (id: number | null, s: Omit<ScheduleRow, 'id' | 'lastRun' | 'lastResult'>): number => {
+  const args = [s.name, s.sceneId, s.vmid, s.action, s.days.join(','), s.time, s.enabled ? 1 : 0] as const;
+  if (id === null) return Number(d.prepare('INSERT INTO schedules (name, scene_id, vmid, action, days, time, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)').run(...args).lastInsertRowid);
+  d.prepare('UPDATE schedules SET name = ?, scene_id = ?, vmid = ?, action = ?, days = ?, time = ?, enabled = ? WHERE id = ?').run(...args, id);
+  return id;
+};
+export const deleteSchedule = (id: number) => { d.prepare('DELETE FROM schedules WHERE id = ?').run(id); };
+export const markScheduleRun = (id: number, result: string) => { d.prepare('UPDATE schedules SET last_run = ?, last_result = ? WHERE id = ?').run(Date.now(), result.slice(0, 300), id); };
