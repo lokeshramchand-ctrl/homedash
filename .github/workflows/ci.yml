@@ -1,0 +1,24 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+      - run: cd server && npm ci && npm run build
+      - run: cd mobile && npm ci && npx tsc --noEmit
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck ct/*.sh install/*.sh tools/pve/*.sh
+      - run: python3 -m json.tool json/homedash.json >/dev/null
