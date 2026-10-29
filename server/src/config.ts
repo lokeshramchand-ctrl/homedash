@@ -85,6 +85,9 @@ export const cfg = {
     label: env('AI_LABEL'), // display name, e.g. "Ollama · llama3.1"
   },
 
+  backupMaxAgeDays: Number(env('BACKUP_MAX_AGE_DAYS', '8')), // a guest whose newest backup is older than this is flagged stale
+  snapshotMaxAgeDays: Number(env('SNAPSHOT_MAX_AGE_DAYS', '30')),
+  memoryReserveMb: Number(env('MEMORY_RESERVE_MB', '1024')), // kept free for the host when checking whether a guest fits
   metricsToken: env('METRICS_TOKEN'), // bearer token for GET /metrics (Prometheus/Grafana); empty = endpoint disabled
 
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)

@@ -10,7 +10,8 @@
     "build": "tsc",
     "dev": "tsc --watch --preserveWatchOutput",
     "start": "node --disable-warning=ExperimentalWarning --env-file=.env build/index.js",
-    "create-user": "node --disable-warning=ExperimentalWarning --env-file=.env build/create-user.js"
+    "create-user": "node --disable-warning=ExperimentalWarning --env-file=.env build/create-user.js",
+    "test": "tsc && node --disable-warning=ExperimentalWarning --test test/*.test.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.1",
