@@ -34,7 +34,8 @@ const ROWS: Row[] = [
   R('server.port', 'PORT'), R('server.host', 'HOST'), R('server.trust_proxy', 'TRUST_PROXY', (v) => (Array.isArray(v) ? v.join(',') : scalar(v))),
   R('server.secure_cookies', 'COOKIE_SECURE'), R('server.session_hours', 'SESSION_TTL_HOURS'), R('server.session_idle_minutes', 'SESSION_IDLE_MINUTES'),
   R('server.serve_dist', 'SERVE_DIST'), R('server.database', 'DB_PATH'), R('server.frame_src', 'FRAME_SRC', list(' ')),
-  R('server.log_retention_days', 'EVENT_RETENTION_DAYS'), R('server.host_journal', 'JOURNAL_ENABLED'),
+  R('server.log_retention_days', 'EVENT_RETENTION_DAYS'),
+  R('server.backup_dir', 'BACKUP_DIR'), R('server.backup_keep', 'BACKUP_KEEP'), R('server.backup_every_hours', 'BACKUP_EVERY_HOURS'), R('proxmox.updates_alert_count', 'UPDATES_ALERT_COUNT'), R('server.host_journal', 'JOURNAL_ENABLED'),
 
   R('proxmox.url', 'PVE_URL', list(' ')), R('proxmox.cluster_name', 'PVE_CLUSTER_NAME'), R('proxmox.node', 'PVE_NODE'), R('proxmox.token_id', 'PVE_TOKEN_ID'), R('proxmox.token_secret', 'PVE_TOKEN_SECRET'),
   R('proxmox.insecure_tls', 'PVE_INSECURE_TLS'), R('proxmox.allowed_vmids', 'ALLOWED_VMIDS', list(',')), R('proxmox.protected_vmids', 'PROTECTED_VMIDS', list(',')),
@@ -338,6 +339,7 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'auditexport', label: 'Audit export (SIEM)', on: has('AUDIT_SYSLOG') || has('AUDIT_WEBHOOK_URL'), hint: 'audit.syslog or audit.webhook_url' },
     { id: 'policy', label: 'Config as code (scenes, routes, windows)', on: !!env.POLICY, hint: 'policy: { scenes, schedules, alert_routes, maintenance }' },
     { id: 'status', label: 'Public status page', on: /"enabled":true/.test(env.STATUS_PAGE ?? ''), hint: 'status_page: { enabled: true, tiles: [...] }' },
+    { id: 'selfbackup', label: 'Database backups (homedash itself)', on: has('BACKUP_DIR'), hint: 'server.backup_dir: /var/backups/homedash' },
     { id: 'nginx', label: 'nginx site manager', on: env.NGINX_MANAGE === 'true', hint: 'nginx.manage: true' },
   ];
 }

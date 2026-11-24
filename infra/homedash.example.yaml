@@ -336,3 +336,11 @@ addons:
 #     url: https://192.0.2.20:8007
 #     token: ${PBS_TOKEN}            # user@pbs!tokenname:secret
 #     insecure_tls: true
+
+# Upkeep: pending updates and ZFS pool health are checked hourly per node (alerts under "host"); a new kernel or this
+# many pending packages raises one warning. And homedash can back up its own database (users, tokens, audit trail):
+# server:
+#   backup_dir: /var/backups/homedash   # one consistent copy every backup_every_hours (default 24), mode 0600
+#   backup_keep: 14
+# proxmox:
+#   updates_alert_count: 30

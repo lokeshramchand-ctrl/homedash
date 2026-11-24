@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Node upkeep: pending package updates (flagging a new kernel) and ZFS pool health (degraded, faulted, nearly full) are read hourly per node, alert once and recover, and show under `/api/cluster/upkeep`.
+- Self-backup: `server.backup_dir` writes a consistent copy of homedash's own database on a schedule (mode 0600, newest N kept), with `GET/POST /api/admin/backups` to list and run one. Failures alert.
 - Proxmox Backup Server tile (datastore fullness, failed tasks in the last 24 h, datastores that fill within 30 days).
 - Public status page (`status_page:`): `/status` and `/status.json`, no sign-in, shows only the tiles and Uptime Kuma monitors you list as operational / degraded / outage, escaped, script-free and rate limited.
 - CI: server tests, shipped-example validation, stricter shellcheck and syntax checks on every push and pull request.

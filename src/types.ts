@@ -413,3 +413,11 @@ export interface Tile {
   id: string; kind: string; name: string; link?: string; group?: string;
   state: 'ok' | 'warn' | 'down' | 'pending'; summary?: string; stats?: TileStat[]; ms: number | null; at: number | null; error?: string;
 }
+
+// ---- node upkeep (updates, ZFS) ----
+export interface Upkeep {
+  node: string; checkedAt: number;
+  updates: { total: number; kernel: boolean; proxmox: number; sample: string[] } | null;
+  pools: { name: string; health: string; size: number; free: number; frag: number | null }[] | null;
+  problems: { key: string; level: 'error' | 'warn'; title: string; text: string }[];
+}

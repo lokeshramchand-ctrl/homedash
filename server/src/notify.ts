@@ -13,6 +13,8 @@ import { getState, setState } from './db.js';
 import type { EventRow } from './db.js';
 import { HttpError, notConfigured } from './errors.js';
 import { haState } from './ha.js';
+import { lastUpkeep, readUpkeep } from './maintenance.js';
+import type { Problem } from './maintenance.js';
 import { recentHardwareErrors, remoteHardwareErrors } from './diagnostics.js';
 import { logEvent } from './events.js';
 import { pve } from './proxmox.js';
@@ -253,6 +255,29 @@ async function watchNode(c: Cluster, node: string, local: boolean) {
       if (down && !raised.has(key)) { raised.add(key); logEvent('error', 'host', `Service ${name} is ${s.state} on ${place}`); alert('services', 'error', `Service down · ${name}`, `${s.desc ?? name} is ${s.state} on ${place}`, key); }
       else if (!down && raised.delete(key)) { logEvent('info', 'host', `Service ${name} running again`); alert('services', 'info', `Service recovered · ${name}`, `${name} is running again`, `${key}|ok`); }
     }
+  }
+  // Pending updates and ZFS pool health: read at most once an hour per node.
+  const prev = lastUpkeep(c.id, node);
+  if (!prev || Date.now() - prev.checkedAt > 3_600_000) syncProblems(`up|${P}`, 'host', (await readUpkeep(c.id, node, place)).problems);
+}
+
+/** Raises one alert per new problem and one recovery when it disappears. `scope` keeps different sources apart. */
+const syncRaised = new Map<string, string>();
+function syncProblems(scope: string, category: Category, problems: Problem[]) {
+  const now = new Set<string>();
+  for (const p of problems) {
+    const key = `${scope}|${p.key}`;
+    now.add(key);
+    if (syncRaised.has(key)) continue;
+    syncRaised.set(key, p.title);
+    logEvent(p.level === 'error' ? 'error' : 'warn', 'host', `${p.title}: ${p.text}`);
+    alert(category, p.level, p.title, p.text, key);
+  }
+  for (const [key, title] of [...syncRaised]) {
+    if (!key.startsWith(`${scope}|`) || now.has(key)) continue;
+    syncRaised.delete(key);
+    logEvent('info', 'host', `Recovered: ${title}`);
+    alert(category, 'info', `Recovered · ${title}`, 'No longer reported', `${key}|ok`);
   }
 }
 

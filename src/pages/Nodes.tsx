@@ -20,6 +20,7 @@ export default function Nodes() {
         )}
       </Async>
       <HaCard />
+      <UpkeepCard />
     </>
   );
 }
@@ -103,6 +104,28 @@ function ClusterCard({ c, current, onOpen }: { c: ClusterInfo; current: boolean;
           ))}
         </ul>
       )}
+    </Card>
+  );
+}
+
+/** Pending updates and ZFS pool health per node of the selected cluster (checked hourly by the server). */
+function UpkeepCard() {
+  const q = useQuery(api.upkeep, [], 60_000);
+  const rows = q.data ?? [];
+  if (!rows.length) return null;
+  return (
+    <Card>
+      <CardHead title="Updates and storage" sub="Pending packages and ZFS pools, checked hourly" />
+      <div className="card table">
+        <div className="k-row g-head"><span>Node</span><span>Updates</span><span>ZFS pools</span></div>
+        {rows.map((r) => (
+          <div key={r.node} className="k-row">
+            <span className="k-name"><b>{r.node}</b></span>
+            <span>{r.updates ? <Badge tone={r.updates.kernel || r.updates.total >= 30 ? 'amber' : 'green'} dot>{r.updates.total === 0 ? 'up to date' : `${r.updates.total} pending${r.updates.kernel ? ' · new kernel' : ''}`}</Badge> : <span className="muted small">not readable</span>}</span>
+            <span>{r.pools === null ? <span className="muted small">not readable</span> : r.pools.length === 0 ? <span className="muted small">none</span> : r.pools.map((p) => <Badge key={p.name} tone={p.health === 'ONLINE' ? 'green' : p.health === 'DEGRADED' ? 'amber' : 'red'} dot>{p.name} {p.health.toLowerCase()}</Badge>)}</span>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }
