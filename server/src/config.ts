@@ -1,4 +1,5 @@
 // All configuration comes from environment variables (see .env.example).
+import { readFileSync } from 'node:fs';
 
 const env = (k: string, d = ''): string => (process.env[k] ?? d).trim();
 const bool = (k: string, d: boolean): boolean => {
@@ -22,6 +23,38 @@ function conflicts(): Record<number, number[]> {
 const trim = (u: string) => u.replace(/\/+$/, '');
 /** OIDC_<name>, falling back to the legacy KEYCLOAK_<name>. */
 const oenv = (name: string): string => env(`OIDC_${name}`) || env(`KEYCLOAK_${name}`);
+
+/** A Data manager connection declared in .env (DS_<ID>_KIND=...). Synced into the store on every start. */
+export interface EnvDatasource {
+  envId: string; name: string; kind: string; readOnly: boolean; color?: string;
+  host?: string; port?: number; database?: string; username?: string; password?: string; uri?: string;
+  tls?: boolean; tlsInsecure?: boolean; ca?: string; file?: string; token?: string;
+}
+
+// DS_<ID>_KIND marks a connection; every other DS_<ID>_* key is optional. <ID> is letters, digits and underscores.
+function envDatasources(): EnvDatasource[] {
+  const out: EnvDatasource[] = [];
+  for (const k of Object.keys(process.env).sort()) {
+    const m = /^DS_([A-Z0-9_]+?)_KIND$/.exec(k);
+    if (!m) continue;
+    const id = m[1];
+    const v = (f: string) => env(`DS_${id}_${f}`) || undefined;
+    const b = (f: string) => (v(f) === undefined ? undefined : bool(`DS_${id}_${f}`, false));
+    const caFile = v('CA_FILE');
+    let ca = v('CA');
+    if (!ca && caFile) {
+      // A bad entry must not stop the dashboard; it is skipped and named in the log.
+      try { ca = readFileSync(caFile, 'utf8'); } catch { console.warn(`DS_${id}_CA_FILE: cannot read ${caFile}, connection skipped`); continue; }
+    }
+    const port = v('PORT');
+    out.push({
+      envId: id, name: v('NAME') ?? id.toLowerCase(), kind: env(k).toLowerCase(), readOnly: b('READONLY') ?? true, color: v('COLOR'),
+      host: v('HOST'), port: port ? Number(port) : undefined, database: v('DATABASE'), username: v('USERNAME') ?? v('USER'),
+      password: v('PASSWORD'), uri: v('URI'), tls: b('TLS'), tlsInsecure: b('TLS_INSECURE'), ca, file: v('FILE'), token: v('TOKEN'),
+    });
+  }
+  return out;
+}
 
 export const cfg = {
   port: Number(env('PORT', '3000')),
@@ -112,6 +145,13 @@ export const cfg = {
   memoryReserveMb: Number(env('MEMORY_RESERVE_MB', '1024')), // kept free for the host when checking whether a guest fits
   metricsToken: env('METRICS_TOKEN'), // bearer token for GET /metrics (Prometheus/Grafana); empty = endpoint disabled
 
+  // Data manager: connection secrets are AES-256-GCM encrypted with a key derived from DATASOURCE_KEY. Empty = off.
+  datasourceKey: env('DATASOURCE_KEY'),
+  sqliteDirs: env('DATASOURCE_SQLITE_DIRS').split(',').map((x) => x.trim().replace(/\/+$/, '')).filter(Boolean), // SQLite files may only live under these
+  // Where user-created Data connections may point (CIDRs, comma separated). Empty = only loopback and link-local are refused.
+  datasourceAllowedNets: env('DATASOURCE_ALLOWED_NETS').split(/[\s,]+/).filter(Boolean),
+  envDatasources: envDatasources(), // connections declared as DS_<ID>_* in .env; locked in the UI, .env is the source of truth
+
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)
 };
 
@@ -123,3 +163,4 @@ export const ntfyConfigured = () => !!(cfg.ntfy.url && cfg.ntfy.topic);
 export const aiConfigured = () => !!(cfg.ai.baseUrl && cfg.ai.model);
 export const lokiConfigured = () => !!cfg.lokiUrl;
 export const crowdsecConfigured = () => !!cfg.crowdsecSnapshot;
+export const dataConfigured = () => cfg.datasourceKey.length >= 16;

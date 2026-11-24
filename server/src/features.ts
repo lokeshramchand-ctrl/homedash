@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { aiConfigured, cfg, crowdsecConfigured, grafanaConfigured, kumaConfigured, lokiConfigured, ntfyConfigured, oidcConfigured, pveConfigured } from './config.js';
+import { aiConfigured, cfg, crowdsecConfigured, dataConfigured, grafanaConfigured, kumaConfigured, lokiConfigured, ntfyConfigured, oidcConfigured, pveConfigured } from './config.js';
 
 /** Which optional integrations are switched on, so the UI can hide pages for the ones that are not. */
 export function features() {
@@ -9,6 +9,7 @@ export function features() {
     kuma: kumaConfigured(),
     loki: lokiConfigured(),
     crowdsec: crowdsecConfigured(),
+    data: dataConfigured(),
     ntfy: ntfyConfigured(),
     ai: aiConfigured(),
     sso: oidcConfigured(),

@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS schedules (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, scene_id INTEGER, vmid INTEGER, action TEXT,
   days TEXT NOT NULL, time TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_run INTEGER, last_result TEXT
 );
+CREATE TABLE IF NOT EXISTS datasources (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, read_only INTEGER NOT NULL DEFAULT 1, color TEXT,
+  config TEXT NOT NULL, secret TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, created_by TEXT NOT NULL,
+  source TEXT, env_id TEXT
+);
+CREATE TABLE IF NOT EXISTS datasource_audit (
+  id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, user TEXT, ip TEXT, ds TEXT, ds_name TEXT, action TEXT NOT NULL, detail TEXT,
+  result TEXT NOT NULL, ms INTEGER, rows INTEGER, expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ds_audit_ts ON datasource_audit (ts DESC);
 CREATE TABLE IF NOT EXISTS oidc_states (id TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL);
 `;
 
@@ -70,12 +80,15 @@ export function connectDb(): void {
   setInterval(purgeExpired, 3_600_000).unref();
 }
 
+/** The raw SQLite handle, for modules that own their own tables (the data manager). */
+export const getDb = (): DatabaseSync => d;
+
 export const closeDb = () => { try { d?.close(); } catch { /* already closed */ } };
 
 /** Replaces the TTL indexes a document database would use. */
 function purgeExpired() {
   const now = Date.now();
-  for (const t of ['sessions', 'login_attempts', 'kuma_samples', 'system_events', 'oidc_states']) {
+  for (const t of ['sessions', 'login_attempts', 'kuma_samples', 'system_events', 'oidc_states', 'datasource_audit']) {
     d.prepare(`DELETE FROM ${t} WHERE expires_at < ?`).run(now);
   }
 }

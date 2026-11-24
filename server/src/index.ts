@@ -6,7 +6,7 @@ import { registerAuth } from './auth.js';
 import { registerCrowdsec } from './crowdsec.js';
 import { registerFeatures } from './features.js';
 import { registerLoki } from './loki.js';
-import { cfg } from './config.js';
+import { cfg, dataConfigured } from './config.js';
 import { closeDb, connectDb } from './db.js';
 import { HttpError } from './errors.js';
 import { registerGrafana } from './grafana.js';
@@ -94,6 +94,13 @@ registerMetrics(app);
 registerFeatures(app);
 registerLoki(app);
 registerCrowdsec(app);
+// The Data manager pulls in the database drivers (optional dependencies), so it is only loaded when switched on.
+let closeData = async () => {};
+if (dataConfigured()) {
+  const data = await import('./data.js');
+  data.registerData(app);
+  closeData = data.closeData;
+}
 registerInsights(app);
 registerHealth(app);
 registerScenes(app);
@@ -104,7 +111,7 @@ startNotify(app);
 startHealth();
 startScheduler();
 
-const shutdown = async () => { await recordCleanStop(); await app.close(); closeDb(); process.exit(0); };
+const shutdown = async () => { await recordCleanStop(); await app.close(); await closeData(); closeDb(); process.exit(0); };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
