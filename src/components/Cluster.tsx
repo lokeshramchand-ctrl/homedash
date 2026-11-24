@@ -48,9 +48,12 @@ export function MigrateModal({ vmid, name, onClose, onDone }: { vmid: number; na
   const [withDisks, setWithDisks] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Re-checked when "copy local disks" changes: it decides whether a running VM is blocked.
   useEffect(() => {
-    api.migrateInfo(vmid).then((i) => { setInfo(i); setTarget(i.targets.find((t) => t.allowed)?.name ?? ''); }).catch((e) => setErr((e as Error).message));
-  }, [vmid]);
+    api.migrateInfo(vmid, withDisks).then((i) => { setInfo(i); setTarget((cur) => (i.targets.some((t) => t.name === cur && t.allowed) ? cur : i.targets.find((t) => t.allowed)?.name ?? '')); }).catch((e) => setErr((e as Error).message));
+  }, [vmid, withDisks]);
+  const checks = info ? [...info.checks, ...(info.targets.find((t) => t.name === target)?.checks ?? [])] : [];
+  const blocked = checks.some((c) => c.level === 'block');
 
   async function go() {
     setBusy(true);
@@ -73,7 +76,7 @@ export function MigrateModal({ vmid, name, onClose, onDone }: { vmid: number; na
     <Modal title={`Migrate ${name}`} onClose={busy ? () => undefined : onClose} footer={
       <>
         <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="btn btn-primary" onClick={go} disabled={busy || !target || !info}>{busy ? <Spinner size={14} /> : <Icon name="rotate" size={15} />}Migrate to {target || '…'}</button>
+        <button className="btn btn-primary" onClick={go} disabled={busy || !target || !info || blocked}>{busy ? <Spinner size={14} /> : <Icon name="rotate" size={15} />}Migrate to {target || '…'}</button>
       </>
     }>
       {!info && !err && <p className="muted"><Spinner size={14} /> Checking where it can go…</p>}
@@ -93,7 +96,15 @@ export function MigrateModal({ vmid, name, onClose, onDone }: { vmid: number; na
               {info.type === 'qemu' && <label className="check"><input type="checkbox" checked={withDisks} onChange={(e) => setWithDisks(e.target.checked)} />Copy local disks too (slower)</label>}
             </>
           )}
-          {info.localResources.length > 0 && <Badge tone="amber">Uses local devices: {info.localResources.join(', ')}</Badge>}
+          {checks.length > 0 && (
+            <ul className="stack-sm" aria-label="Pre-flight checks" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {checks.map((c) => (
+                <li key={c.id + c.text} className={`callout ${c.level === 'block' ? 'err' : c.level === 'warn' ? 'warn' : ''}`}>
+                  <Icon name={c.level === 'info' ? 'info' : 'alert'} size={16} /><span><b>{c.level === 'block' ? 'Blocked: ' : c.level === 'warn' ? 'Heads up: ' : ''}</b>{c.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </Modal>

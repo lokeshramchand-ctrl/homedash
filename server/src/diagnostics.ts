@@ -4,7 +4,7 @@ import { readdir, readFile, readlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { cfg } from './config.js';
-import { hostPath } from './clusters.js';
+import { hostPath, nodePath } from './clusters.js';
 import { HttpError } from './errors.js';
 import { journal } from './events.js';
 import { listGuests } from './guests.js';
@@ -255,4 +255,29 @@ export function registerDiagnostics(app: FastifyInstance) {
 export async function recentHardwareErrors(sinceIso: string) {
   const lines = await journal(['-k', '--since', sinceIso.replace('T', ' ').replace(/\.\d+Z$/, ' UTC').replace('Z', ' UTC'), '-g', `${GPU_PATTERN}|${FAILURE_PATTERN}`, '-n', '200']).catch(() => []);
   return lines.map(classify).filter((l) => l.level === 'error');
+}
+
+/** Kernel lines worth an alert from `journalctl`-style text ("Nov 24 10:12:03 pve2 kernel: nvme nvme0: I/O 5 timeout"). Pure. */
+export function kernelErrorsIn(lines: string[]): LogLine[] {
+  const re = new RegExp(`${GPU_PATTERN}|${FAILURE_PATTERN}`);
+  const out: LogLine[] = [];
+  for (const raw of lines) {
+    const i = raw.indexOf(' kernel: ');
+    if (i < 0) continue;
+    const message = raw.slice(i + 9).trim();
+    if (!message || !re.test(message)) continue;
+    const l = classify({ ts: new Date().toISOString(), priority: 6, unit: 'kernel', message });
+    if (l.level === 'error') out.push(l);
+  }
+  return out;
+}
+
+/** Same as recentHardwareErrors, for any node of the selected cluster, read through the Proxmox API (needs Sys.Syslog). */
+export async function remoteHardwareErrors(node: string, sinceMs: number): Promise<LogLine[]> {
+  const q = `?since=${Math.floor(sinceMs / 1000)}`;
+  const lines = await pve<unknown>('GET', `${nodePath(node)}/journal${q}`).catch(() => null);
+  if (Array.isArray(lines)) return kernelErrorsIn(lines.map(String).slice(-2000));
+  // Older Proxmox: the syslog endpoint, [{ n, t }]
+  const sys = await pve<{ t?: string }[]>('GET', `${nodePath(node)}/syslog?since=${encodeURIComponent(new Date(sinceMs).toISOString().slice(0, 16).replace('T', ' '))}&limit=2000`).catch(() => []);
+  return kernelErrorsIn(sys.map((r) => String(r.t ?? '')));
 }

@@ -3,7 +3,10 @@
 import type { FastifyInstance } from 'fastify';
 import { CLUSTERS, currentCluster, defaultCluster, enterCluster, findCluster, inCluster, nodePath } from './clusters.js';
 import type { Cluster } from './clusters.js';
+import { cfg } from './config.js';
 import { HttpError } from './errors.js';
+import { blockers, migrationChecks } from './migrate-check.js';
+import type { CheckInput } from './migrate-check.js';
 import { findGuest, guestPath, invalidateGuests, listGuests } from './guests.js';
 import { pve } from './proxmox.js';
 import { activeUrl } from './proxmox.js';
@@ -70,6 +73,23 @@ async function describe(c: Cluster): Promise<ClusterInfo> {
   }
 }
 
+
+/** Disks, passthrough devices and RAM facts for a guest, as the pre-flight check needs them. */
+async function migrationFacts(g: { node: string; type: 'qemu' | 'lxc'; vmid: number; status: string; memMax: number }, withLocalDisks: boolean) {
+  const [pre, conf] = await Promise.all([
+    pve<any>('GET', `${nodePath(g.node)}/${g.type}/${g.vmid}/migrate`).catch((e: Error) => { throw new HttpError(502, 'PVE_ERROR', e.message); }),
+    g.type === 'qemu' ? pve<Record<string, unknown>>('GET', `${nodePath(g.node)}/qemu/${g.vmid}/config`).catch(() => ({} as Record<string, unknown>)) : Promise.resolve({} as Record<string, unknown>),
+  ]);
+  // hostpciN and usbN (except SPICE redirection) pin a VM to hardware; Proxmox also reports them as local resources.
+  const fromConfig = Object.entries(conf).filter(([k, v]) => /^(hostpci|usb)\d+$/.test(k) && !/^spice/.test(String(v))).map(([k]) => k);
+  const input: Omit<CheckInput, 'target'> = {
+    type: g.type, running: g.status === 'running', withLocalDisks, memMax: g.memMax, reserveBytes: cfg.memoryReserveMb * 1024 * 1024,
+    localDisks: (pre?.local_disks ?? []).map((d: any) => ({ volid: String(d.volid), size: num(d.size) })),
+    localResources: [...new Set([...(pre?.local_resources ?? []).map(String), ...fromConfig])],
+  };
+  return { pre, input };
+}
+
 export function registerCluster(app: FastifyInstance) {
   // Every cluster at a glance (each queried in parallel, one slow cluster does not hold the others up).
   app.get('/api/clusters', async (req) => {
@@ -83,12 +103,10 @@ export function registerCluster(app: FastifyInstance) {
   const migratePath = (g: { node: string; type: string; vmid: number }) => `${nodePath(g.node)}/${g.type}/${g.vmid}/migrate`;
 
   // What a migration would involve: where it may go, and what blocks the other nodes.
-  app.get<{ Params: { vmid: string } }>('/api/guests/:vmid/migrate', async (req) => {
+  app.get<{ Params: { vmid: string }; Querystring: { withLocalDisks?: string } }>('/api/guests/:vmid/migrate', async (req) => {
     const g = await findGuest(req.params.vmid);
-    const [pre, nodes] = await Promise.all([
-      pve<any>('GET', migratePath(g)).catch((e: Error) => { throw new HttpError(502, 'PVE_ERROR', e.message); }),
-      pve<any[]>('GET', '/cluster/resources?type=node'),
-    ]);
+    const withDisks = req.query.withLocalDisks === '1' || req.query.withLocalDisks === 'true';
+    const [{ pre, input }, nodes] = await Promise.all([migrationFacts(g, withDisks), pve<any[]>('GET', '/cluster/resources?type=node')]);
     const blocked: Record<string, unknown> = pre?.not_allowed_nodes ?? {};
     return {
       vmid: g.vmid, name: g.name, node: g.node, type: g.type, running: g.status === 'running',
@@ -96,10 +114,16 @@ export function registerCluster(app: FastifyInstance) {
       mode: g.type === 'qemu' ? (g.status === 'running' ? 'live' : 'offline') : (g.status === 'running' ? 'restart' : 'offline'),
       localDisks: (pre?.local_disks ?? []).map((d: any) => ({ volid: String(d.volid), size: num(d.size) })),
       localResources: (pre?.local_resources ?? []).map(String),
-      targets: nodes.filter((n) => n.node !== g.node).map((n) => ({
-        name: String(n.node), online: n.status === 'online', allowed: (pre?.allowed_nodes ?? []).includes(n.node) && n.status === 'online',
-        reason: blocked[n.node] ? JSON.stringify(blocked[n.node]).slice(0, 200) : n.status !== 'online' ? 'offline' : null,
-      })),
+      checks: migrationChecks(input),
+      targets: nodes.filter((n) => n.node !== g.node).map((n) => {
+        const t = {
+          name: String(n.node), online: n.status === 'online', allowed: (pre?.allowed_nodes ?? []).includes(n.node) && n.status === 'online',
+          reason: blocked[n.node] ? JSON.stringify(blocked[n.node]).slice(0, 200) : n.status !== 'online' ? 'offline' : null,
+        };
+        // Target-specific findings only (the guest-level ones are in `checks`).
+        const own = migrationChecks({ ...input, localDisks: [], localResources: [], type: 'lxc', running: false, target: { ...t, maxmem: num(n.maxmem), mem: num(n.mem) } }).filter((c) => c.id !== 'lxc-restart');
+        return { ...t, checks: own };
+      }),
     };
   });
 
@@ -112,6 +136,12 @@ export function registerCluster(app: FastifyInstance) {
     const t = nodes.find((n) => n.node === target);
     if (!t) throw new HttpError(404, 'NOT_FOUND', `No node "${target}" in this cluster`);
     if (t.status !== 'online') throw new HttpError(409, 'NODE_OFFLINE', `${target} is offline`);
+    // The same pre-flight the dialog showed, enforced here so the API cannot be used to skip it.
+    const { pre, input } = await migrationFacts(g, !!req.body?.withLocalDisks);
+    const allowed = (pre?.allowed_nodes ?? []).includes(target);
+    const found = migrationChecks({ ...input, target: { name: target, online: true, allowed, reason: (pre?.not_allowed_nodes ?? {})[target] ? JSON.stringify(pre.not_allowed_nodes[target]).slice(0, 200) : null, maxmem: num(t.maxmem), mem: num(t.mem) } });
+    const stop = blockers(found);
+    if (stop.length) throw new HttpError(409, 'PREFLIGHT', stop.map((c) => c.text).join(' '));
     const done = await guard(req, g, 'migrate', { target }); // refuses protected guests and writes the audit row
     const form: Record<string, string> = { target };
     if (g.status === 'running') form[g.type === 'qemu' ? 'online' : 'restart'] = '1';

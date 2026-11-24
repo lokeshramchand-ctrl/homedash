@@ -394,7 +394,17 @@ export interface ClusterInfo {
 export interface ClustersResponse { current: string; defaultNode: string; clusters: ClusterInfo[] }
 export interface MigrateInfo {
   vmid: number; name: string; node: string; type: 'lxc' | 'qemu'; running: boolean; mode: 'live' | 'restart' | 'offline';
-  localDisks: { volid: string; size: number }[]; localResources: string[]; targets: { name: string; online: boolean; allowed: boolean; reason: string | null }[];
+  localDisks: { volid: string; size: number }[]; localResources: string[];
+  checks: MigrateCheck[]; targets: { name: string; online: boolean; allowed: boolean; reason: string | null; checks: MigrateCheck[] }[];
+}
+export interface MigrateCheck { id: string; level: 'block' | 'warn' | 'info'; text: string }
+
+// ---- high availability ----
+export interface HaState {
+  available: boolean; cluster: string | null; enabled?: boolean; quorate?: boolean | null; master?: string | null;
+  nodes?: { node: string; agent: 'active' | 'idle' | 'dead' | 'unknown'; manager: string; attention: boolean }[];
+  services?: { sid: string; vmid: number | null; node: string; state: string; requested: string; attention: 'error' | 'warn' | null; reason: string | null }[];
+  problems?: { key: string; level: 'error' | 'warn'; title: string; text: string }[];
 }
 
 // ---- service tiles (Docker, Pi-hole, Jellyfin, ...) ----

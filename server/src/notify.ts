@@ -6,13 +6,14 @@ import { crowdsecWatch } from './crowdsec.js';
 import { registerAlertRules, routeChannels, silenceFor } from './alertrules.js';
 import { CHANNELS, anyChannelConfigured, channelById } from './channels.js';
 import type { Level, Msg } from './channels.js';
-import { forEachCluster, nodePath, where } from './clusters.js';
+import { forEachCluster, multiCluster, nodePath, where } from './clusters.js';
 import type { Cluster } from './clusters.js';
 import { cfg, pveConfigured } from './config.js';
 import { getState, setState } from './db.js';
 import type { EventRow } from './db.js';
 import { HttpError, notConfigured } from './errors.js';
-import { recentHardwareErrors } from './diagnostics.js';
+import { haState } from './ha.js';
+import { recentHardwareErrors, remoteHardwareErrors } from './diagnostics.js';
 import { logEvent } from './events.js';
 import { pve } from './proxmox.js';
 
@@ -152,6 +153,29 @@ function threshold(key: string, label: string, value: number, limit: number, tex
     if (raised.delete(key)) alert('resources', 'info', `${label} back to normal on ${place}`, text, `res|${key}|ok`);
   }
 }
+const remoteKernelSince = new Map<string, number>();
+
+// HA manager: fencing, dead agents, services in error / recovery. One alert per problem, one when it clears.
+const haRaised = new Map<string, string>();
+async function watchHa(c: Cluster) {
+  const info = await haState().catch(() => null);
+  if (!info) return;
+  const now = new Set<string>();
+  for (const p of info.problems) {
+    const key = `${c.id}|${p.key}`;
+    now.add(key);
+    if (haRaised.has(key)) continue;
+    haRaised.set(key, p.title);
+    logEvent(p.level === 'error' ? 'error' : 'warn', 'host', `${p.title}: ${p.text}${multiCluster() ? ` [${c.id}]` : ''}`);
+    alert('host', p.level, `${p.title}${multiCluster() ? ` (${c.name})` : ''}`, p.text, `ha|${key}`);
+  }
+  for (const [key, title] of [...haRaised]) {
+    if (!key.startsWith(`${c.id}|`) || now.has(key)) continue;
+    haRaised.delete(key);
+    logEvent('info', 'host', `HA recovered: ${title}`);
+    alert('host', 'info', `Recovered · ${title}`, 'The HA manager reports this is fine again', `ha|${key}|ok`);
+  }
+}
 const CLUSTERS_FIRST = () => cfg.clusters[0] as Cluster | undefined;
 const pct = (f: number) => `${(f * 100).toFixed(0)}%`;
 
@@ -162,9 +186,10 @@ async function watch() {
     const nodes = await pve<{ node: string; status?: string }[]>('GET', '/cluster/resources?type=node').catch(() => []);
     for (const nd of nodes) {
       if (nd.status !== 'online') continue;
-      // Kernel errors come from the journal of the machine homedash runs on, so they are only read once per cycle.
+      // Kernel errors: the journal of the machine homedash runs on, or the node's journal through the Proxmox API.
       await watchNode(c, nd.node, c === CLUSTERS_FIRST() && nd.node === c.node);
     }
+    await watchHa(c);
   });
 }
 
@@ -207,7 +232,14 @@ async function watchNode(c: Cluster, node: string, local: boolean) {
   // Kernel lines since the previous poll: GPU passthrough faults, PCIe AER, MCE, I/O errors, OOM kills.
   const from = kernelSince;
   if (local) kernelSince = new Date().toISOString();
-  for (const l of local ? await recentHardwareErrors(from) : []) {
+  // Other nodes are read through the Proxmox API; the first look only sets the marker so a restart does not replay history.
+  let found = local ? await recentHardwareErrors(from) : [];
+  if (!local) {
+    const last = remoteKernelSince.get(P), now = Date.now();
+    remoteKernelSince.set(P, now);
+    if (last) found = await remoteHardwareErrors(node, last - 5_000).catch(() => []);
+  }
+  for (const l of found) {
     const cat: Category = l.kind === 'gpu' ? 'gpu' : l.kind === 'oom' ? 'guest' : 'hardware';
     const title = l.kind === 'gpu' ? 'GPU / passthrough error' : l.kind === 'oom' ? 'Out-of-memory kill' : l.kind === 'crash' ? 'Process crash' : 'Hardware error';
     // Key on the message minus numbers so a burst of near-identical lines is one alert.

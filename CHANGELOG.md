@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Service tiles: read-only status cards for Docker, Portainer, Pi-hole (v5 and v6), Nginx Proxy Manager (with certificate expiry), Jellyfin, Home Assistant and any JSON endpoint, declared under `tiles:`. A tile that stays unreachable raises one alert and one recovery.
+- Tamper-evident audit trail: every audit row is hash-chained; `GET /api/admin/audit/verify` checks it, `/api/admin/audit/export` downloads it (JSON lines or CEF), and `audit:` pushes each new row to a syslog collector (UDP/TCP, RFC 5424) or an HMAC-signed webhook.
+- Config as code: scenes, schedules, alert routes and maintenance windows declared under `policy:` are created, updated and removed to match the file at every start, and are read-only in the UI.
+- Clusters: HA state on the Cluster page (master, agents, fencing, services) with alerts for fencing, dead agents, failed services and lost quorum; a migration pre-flight (local disks, passthrough, target RAM) that blocks what would fail and is enforced by the API; kernel-error alerts now cover every node of a cluster, read through the Proxmox API.
 - Clusters: guests from every node of a Proxmox cluster, several API addresses per cluster with failover, several clusters or stand-alone nodes with a switcher, a Cluster page (nodes, quorum, load), live/restart migration, node-offline and quorum alerts, and per-node host pages, shutdown and metrics. Single-node installs behave as before.
 - Incident tools: PagerDuty (Events API v2) and Opsgenie open an incident per problem and close it when the recovery arrives. Monitors and the Proxmox API now have stable keys so their recoveries close their own incident.
 - Maintenance windows (one-off or weekly, per kind or text) and alert routing rules (by kind, severity, text, time of day), with a one-click silence from any alert.

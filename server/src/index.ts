@@ -40,6 +40,7 @@ import { registerNotify, startNotify } from './notify.js';
 import { registerOidc } from './oidc.js';
 import { registerAuditLog } from './auditlog.js';
 import { applyConfiguredPolicy } from './policy.js';
+import { registerHa } from './ha.js';
 import { registerTiles, startTiles } from './tiles.js';
 import { registerOverview } from './overview.js';
 
@@ -120,6 +121,7 @@ registerLoki(app);
 registerCrowdsec(app);
 registerCluster(app);
 registerTiles(app);
+registerHa(app);
 registerAuditLog(app);
 registerQemu(app);
 registerVmOps(app);

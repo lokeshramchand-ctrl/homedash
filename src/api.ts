@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
+  AppConfig, HaState, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -278,7 +278,8 @@ export const api = {
   routeSave: (id: number | null, b: RouteInput) => (id === null ? post<{ id: number }>('/notify/routes', b) : put<{ id: number }>(`/notify/routes/${id}`, b)),
   routeDelete: (id: number) => del<{ ok: boolean }>(`/notify/routes/${id}`),
   clusters: () => get<ClustersResponse>('/clusters'),
-  migrateInfo: (vmid: number) => get<MigrateInfo>(`/guests/${vmid}/migrate`),
+  migrateInfo: (vmid: number, withLocalDisks = false) => get<MigrateInfo>(`/guests/${vmid}/migrate${withLocalDisks ? '?withLocalDisks=1' : ''}`),
+  ha: () => get<HaState>('/cluster/ha'),
   migrate: (vmid: number, target: string, withLocalDisks = false) => post<{ taskId: string }>(`/guests/${vmid}/migrate`, { target, withLocalDisks }),
 };
 

@@ -3,7 +3,7 @@ import { Async, Badge, Card, CardHead, EmptyState, Meter, PageHeader } from '../
 import { fmtBytes, fmtPct, fmtUptime } from '../format';
 import { useQuery } from '../hooks';
 import { select } from '../selection';
-import type { ClusterInfo } from '../types';
+import type { ClusterInfo, HaState } from '../types';
 
 /** Every cluster and node at a glance: who is online, quorum, load, where guests run, which API address answers. */
 export default function Nodes() {
@@ -19,7 +19,49 @@ export default function Nodes() {
           </div>
         )}
       </Async>
+      <HaCard />
     </>
+  );
+}
+
+const SVC_TONE = { error: 'red', warn: 'amber' } as const;
+const AGENT_TONE = { active: 'green', idle: 'gray', dead: 'red', unknown: 'amber' } as const;
+
+/** HA manager state of the selected cluster: master, per-node agent and fencing state, and every HA service. Hidden when there is no HA. */
+function HaCard() {
+  const q = useQuery(api.ha, [], 15_000);
+  const h: HaState | undefined = q.data;
+  if (!h?.available || !h.enabled) return null;
+  const nodes = h.nodes ?? [], services = h.services ?? [], problems = h.problems ?? [];
+  return (
+    <Card className="ha-card">
+      <CardHead title="High availability" sub={`Master ${h.master ?? 'unknown'} · ${services.length} HA service${services.length === 1 ? '' : 's'}${h.quorate === false ? ' · NO QUORUM' : ''}`}
+        right={problems.length ? <Badge tone="red" dot>{problems.length} need attention</Badge> : <Badge tone="green" dot>healthy</Badge>} />
+      {problems.length > 0 && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px' }}>
+          {problems.map((p) => <li key={p.key} className={`callout ${p.level === 'error' ? 'err' : 'warn'}`}><span><b>{p.title}.</b> {p.text}</span></li>)}
+        </ul>
+      )}
+      <div className="svc-grid">
+        {nodes.map((n) => (
+          <div key={n.node} className="stat-row" style={{ margin: 0 }}>
+            <div><b style={{ fontSize: 16 }}>{n.node}</b><span>agent <Badge tone={AGENT_TONE[n.agent]}>{n.agent}</Badge>{n.manager !== 'online' && <> · <Badge tone="red">{n.manager}</Badge></>}</span></div>
+          </div>
+        ))}
+      </div>
+      {services.length > 0 && (
+        <div className="card table" style={{ marginTop: 14 }}>
+          <div className="k-row g-head"><span>Service</span><span>State</span><span>Node</span><span>Requested</span></div>
+          {services.map((s) => (
+            <div key={s.sid} className="k-row" title={s.reason ?? undefined}>
+              <span className="k-name"><b>{s.sid}</b></span>
+              <span><Badge tone={s.attention ? SVC_TONE[s.attention] : 'green'} dot>{s.state}</Badge></span>
+              <span className="muted small">{s.node}</span><span className="muted small">{s.requested}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 
