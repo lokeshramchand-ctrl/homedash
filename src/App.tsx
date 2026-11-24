@@ -280,7 +280,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {page === 'grafana' && <Grafana uid={parts[1]} />}
             {page === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
             {page === 'logs' && <Logs />}
-            {page === 'notifications' && <Notifications />}
+            {page === 'notifications' && <Notifications role={role} />}
             {page === 'access' && <Access role={role} user={user} />}
             {page === 'crowdsec' && <Crowdsec />}
             {page === 'data' && <Data parts={parts.slice(1)} />}

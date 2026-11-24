@@ -10,13 +10,23 @@ import nodemailer from 'nodemailer';
 import { cfg } from './config.js';
 
 export type Level = 'info' | 'warn' | 'error';
-export interface Msg { title: string; message: string; level: Level; category: string; priority: number; tags: string[]; clickUrl?: string }
+export interface Msg {
+  title: string; message: string; level: Level; category: string; priority: number; tags: string[]; clickUrl?: string;
+  /** Identifies the problem, so incident tools can open it once and close it when the recovery arrives. */
+  dedupKey?: string;
+  /** This message reports a recovery of dedupKey (incident tools close the incident). */
+  resolve?: boolean;
+  /** A test from the UI: incident tools open and immediately close a throw-away incident. */
+  test?: boolean;
+}
 export interface Channel {
   id: string;
   label: string;
   /** Which settings must be present for this channel to exist. */
   needs: string;
   configured(): boolean;
+  /** Incident tools: they receive recoveries even below their level filter, so incidents never stay open. */
+  incident?: boolean;
   /** A short, non-secret description of where messages go (shown in the UI). */
   target(): string;
   send(m: Msg): Promise<void>;
@@ -153,6 +163,53 @@ export const CHANNELS: Channel[] = [
     },
   },
 ];
+
+
+const hostName = () => cfg.pveNode || 'homedash';
+const stableKey = (m: Msg) => (m.dedupKey ?? `${m.category}|${m.title}`).slice(0, 100);
+
+CHANNELS.push(
+  {
+    id: 'pagerduty', label: 'PagerDuty', incident: true, needs: 'pagerduty.routing_key',
+    configured: () => c.pagerduty.routingKey.length >= 20,
+    target: () => 'Events API v2',
+    // Events API v2: trigger opens an incident (repeated triggers with the same dedup_key add to it), resolve closes it.
+    send: async (m) => {
+      const post = (body: unknown) => http('PagerDuty', `${c.pagerduty.url}/v2/enqueue`, json(body));
+      const dedup = m.test ? `homedash-test-${Date.now()}` : stableKey(m);
+      if (m.resolve) { await post({ routing_key: c.pagerduty.routingKey, event_action: 'resolve', dedup_key: dedup }); return; }
+      await post({
+        routing_key: c.pagerduty.routingKey, event_action: 'trigger', dedup_key: dedup,
+        payload: {
+          summary: clip(`${m.title}: ${m.message}`, 1000), source: hostName(), severity: m.level === 'error' ? 'critical' : m.level === 'warn' ? 'warning' : 'info',
+          component: m.category, group: 'homedash', class: m.category, custom_details: { message: m.message, category: m.category },
+        },
+        ...(m.clickUrl ? { links: [{ href: m.clickUrl, text: 'Open homedash' }] } : {}),
+      });
+      if (m.test) await post({ routing_key: c.pagerduty.routingKey, event_action: 'resolve', dedup_key: dedup });
+    },
+  },
+  {
+    id: 'opsgenie', label: 'Opsgenie', incident: true, needs: 'opsgenie.api_key',
+    configured: () => c.opsgenie.apiKey.length >= 16,
+    target: () => hostOf(c.opsgenie.url),
+    // Alert API: create with an alias (the dedup key), close by alias.
+    send: async (m) => {
+      const headers = { 'Content-Type': 'application/json', Authorization: `GenieKey ${c.opsgenie.apiKey}` };
+      const alias = m.test ? `homedash-test-${Date.now()}` : stableKey(m);
+      const close = () => http('Opsgenie', `${c.opsgenie.url}/v2/alerts/${encodeURIComponent(alias)}/close?identifierType=alias`, { method: 'POST', headers, body: JSON.stringify({ source: 'homedash', note: m.resolve ? m.message.slice(0, 200) : 'homedash test' }) });
+      if (m.resolve) { await close(); return; }
+      await http('Opsgenie', `${c.opsgenie.url}/v2/alerts`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          message: clip(m.title, 130), alias, description: clip(m.message, 15000), source: hostName(), entity: m.category, tags: ['homedash', m.category],
+          priority: m.level === 'error' ? 'P2' : m.level === 'warn' ? 'P3' : 'P5', ...(m.clickUrl ? { details: { url: m.clickUrl } } : {}),
+        }),
+      });
+      if (m.test) await close();
+    },
+  },
+);
 
 export const channelById = (id: string) => CHANNELS.find((x) => x.id === id);
 export const anyChannelConfigured = () => CHANNELS.some((x) => x.configured());

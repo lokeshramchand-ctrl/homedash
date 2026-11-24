@@ -48,6 +48,7 @@ before(async () => {
     SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.address().port), SMTP_STARTTLS: 'false', SMTP_FROM: 'homedash@example.com', SMTP_TO: 'a@example.com, b@example.com',
     APPRISE_URL: `${base}/apprise`, APPRISE_KEY: 'lab',
     WEBHOOK_URL: `${base}/hook`, WEBHOOK_SECRET: 'sek',
+    PAGERDUTY_ROUTING_KEY: 'p'.repeat(32), OPSGENIE_API_KEY: 'o'.repeat(32),
   });
 });
 after(() => { http.close(); smtp.close(); });
@@ -56,12 +57,12 @@ const msg = { title: 'DOWN · Guest', message: 'web <1> & co stopped', level: 'e
 const load = async () => (await import('../build/channels.js')).CHANNELS;
 const byId = async (id) => (await load()).find((c) => c.id === id);
 
-test('all eight channels are configured from the settings and none leaks a secret in target()', async () => {
+test('all ten channels are configured from the settings and none leaks a secret in target()', async () => {
   const ch = await load();
-  assert.deepEqual(ch.map((c) => c.id), ['ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook']);
+  assert.deepEqual(ch.map((c) => c.id), ['ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie']);
   for (const c of ch) {
     assert.equal(c.configured(), true, c.id);
-    for (const secret of ['tok', 'gkey', 'sek', '123:abc', 'webhooks/1']) assert.ok(!c.target().includes(secret), `${c.id} target shows ${secret}`);
+    for (const secret of ['tok', 'gkey', 'sek', '123:abc', 'webhooks/1', 'pppp', 'oooo']) assert.ok(!c.target().includes(secret), `${c.id} target shows ${secret}`);
   }
 });
 

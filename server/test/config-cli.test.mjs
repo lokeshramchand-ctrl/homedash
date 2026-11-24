@@ -139,3 +139,12 @@ test('approval action names in the schema match the server rules', async () => {
   const { ACTIONS } = await import('../build/approvals.js');
   assert.deepEqual([...APPROVAL_ACTIONS].sort(), [...ACTIONS].sort());
 });
+
+test('toEnv: incident tools', () => {
+  const ok = toEnv({ pagerduty: { routing_key: 'k'.repeat(32) }, opsgenie: { api_key: 'o'.repeat(32), region: 'EU' } }, {}, {});
+  assert.deepEqual(ok.problems, []);
+  const on = Object.fromEntries(featureRows(ok.env).map((r) => [r.id, r.on]));
+  assert.deepEqual([on.pagerduty, on.opsgenie], [true, true]);
+  const bad = toEnv({ pagerduty: { routing_key: 'short' }, opsgenie: { api_key: 'o'.repeat(32), region: 'mars' } }, {}, {}).problems.join(' | ');
+  assert.match(bad, /32-character/); assert.match(bad, /us or eu/);
+});

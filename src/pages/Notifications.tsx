@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { Async, Badge, Card, CardHead, EmptyState, Icon, PageHeader, Spinner } from '../components/ui';
+import { Async, Badge, Card, CardHead, Chips, EmptyState, Icon, PageHeader, Spinner } from '../components/ui';
+import { RoutesTab, SilencesTab } from './NotifyRules';
 import { KV } from '../components/Pve';
 import { timeAgo } from '../format';
 import { useQuery, useToast } from '../hooks';
-import type { AlertLevel, NotifyChannel, NotifySettings } from '../types';
+import type { AlertLevel, NotifyChannel, NotifyInfo, NotifySettings } from '../types';
 
 const LABEL: Record<string, [string, string]> = {
   monitor: ['Uptime monitors', 'A Kuma monitor goes down or recovers'],
@@ -34,10 +35,49 @@ const YAML_HINT: Record<string, string> = {
   email: 'email:\n  host: smtp.example.com\n  port: 587\n  user: alerts@example.com\n  password: ${SMTP_PASSWORD}\n  from: homedash@example.com\n  to: [me@example.com]',
   apprise: 'apprise:\n  url: http://192.168.1.22:8000\n  key: homedash        # a saved Apprise config key\n  # or: urls: ["pover://user@token", "mailto://..."]',
   webhook: 'webhook:\n  url: https://example.com/hooks/homedash\n  secret: ${WEBHOOK_SECRET}',
+  pagerduty: 'pagerduty:\n  routing_key: ${PAGERDUTY_KEY}   # Events API v2 integration key',
+  opsgenie: 'opsgenie:\n  api_key: ${OPSGENIE_KEY}\n  region: us   # or eu',
 };
 
-export default function Notifications() {
+type Tab = 'channels' | 'maintenance' | 'routing';
+
+export default function Notifications({ role = 'viewer' }: { role?: string }) {
+  const [tab, setTab] = useState<Tab>('channels');
   const q = useQuery(api.notify, [], 10_000);
+  const silenced = useQuery(api.silences, [], 30_000);
+  const active = silenced.data?.filter((s) => s.active).length ?? 0;
+  return (
+    <>
+      <PageHeader eyebrow="Settings" title="Notifications" sub="Get an alert on the services you already use when something goes down, and again when it recovers. Pause it for planned work, and route it by severity."
+        actions={tab === 'channels' && q.data?.configured && <TestAll q={q} />} />
+      <div className="toolbar">
+        <Chips value={tab} onChange={setTab} options={[{ id: 'channels', label: 'Channels' }, { id: 'maintenance', label: 'Maintenance windows', count: active || undefined }, { id: 'routing', label: 'Routing' }]} />
+        {active > 0 && <Badge tone="amber" dot>{active} window{active === 1 ? '' : 's'} active: alerts are held back</Badge>}
+      </div>
+      {tab === 'channels' && <ChannelsTab q={q} onSilenced={() => silenced.reload()} />}
+      {tab === 'maintenance' && <SilencesTab categories={q.data?.categories ?? []} />}
+      {tab === 'routing' && <RoutesTab categories={q.data?.categories ?? []} channels={q.data?.channels ?? []} admin={role === 'admin'} />}
+    </>
+  );
+}
+
+function TestAll({ q }: { q: ReturnType<typeof useQuery<NotifyInfo>> }) {
+  const toast = useToast();
+  const [testing, setTesting] = useState(false);
+  async function run() {
+    setTesting(true);
+    try {
+      const r = await api.notifyTest();
+      const bad = r.deliveries.filter((d) => !d.ok);
+      if (!bad.length) toast.success(`Test sent to ${r.deliveries.length} channel${r.deliveries.length === 1 ? '' : 's'}`);
+      else toast.error(bad.map((d) => `${d.channel}: ${d.error}`).join(' · '));
+      q.reload();
+    } catch (e) { toast.error(`Test failed: ${(e as Error).message}`); } finally { setTesting(false); }
+  }
+  return <button className="btn btn-primary" onClick={run} disabled={testing}>{testing ? <Spinner size={14} /> : <Icon name="bell" size={15} />}Test all</button>;
+}
+
+function ChannelsTab({ q, onSilenced }: { q: ReturnType<typeof useQuery<NotifyInfo>>; onSilenced: () => void }) {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null); // channel id, 'all' or null
@@ -62,11 +102,16 @@ export default function Notifications() {
   }
 
   const label = (id: string) => q.data?.channels.find((c) => c.id === id)?.label ?? id;
+  async function silence(title: string, category: string) {
+    try {
+      await api.silenceSave(null, { name: `Silenced: ${title}`.slice(0, 80), reason: 'Created from an alert', categories: [category], contains: title.replace(/^(DOWN|Warning|Recovered) · /, '').slice(0, 100), startsAt: new Date().toISOString(), endsAt: new Date(Date.now() + 3600_000).toISOString() });
+      toast.success('Similar alerts are held back for 1 hour (see Maintenance windows)');
+      onSilenced();
+    } catch (e) { toast.error((e as Error).message); }
+  }
 
   return (
     <>
-      <PageHeader eyebrow="Settings" title="Notifications" sub="Get an alert on the services you already use when something goes down, and again when it recovers."
-        actions={q.data?.configured && <button className="btn btn-primary" onClick={() => test()} disabled={testing !== null}>{testing === 'all' ? <Spinner size={14} /> : <Icon name="bell" size={15} />}Test all</button>} />
       <Async q={q} rows={3} h={120}>
         {(d) => (
           <div className="settings-grid">
@@ -126,7 +171,11 @@ export default function Notifications() {
                       <div className="grow">
                         <b>{s.title}</b><p className="muted small">{s.message}</p>
                         <div className="chips-row">
+                          {s.resolve && <Badge tone="green">recovery</Badge>}
+                          {s.silencedBy && <Badge tone="amber" dot>held back by "{s.silencedBy}"</Badge>}
+                          {s.routedBy?.length ? <Badge tone="blue" title={s.routedBy.join(', ')}>routed</Badge> : null}
                           {s.deliveries.map((x) => <Badge key={x.channel} tone={x.ok ? 'green' : 'red'}>{label(x.channel)}{x.ok ? '' : ' failed'}</Badge>)}
+                          {!s.resolve && !s.silencedBy && s.priority >= 4 && <button className="btn btn-ghost btn-sm" onClick={() => silence(s.title, s.category)}>Silence for 1 hour</button>}
                         </div>
                         {!s.ok && <p className="small err-t">{s.error}</p>}
                       </div>
@@ -167,7 +216,7 @@ function ChannelRow({ c, saving, testing, open, onToggleOpen, onTest, onSave, su
     <li className={`chan ${c.enabled ? '' : 'paused'}`}>
       <div className="chan-main">
         <div className="grow">
-          <b>{c.label}</b> <Badge tone={c.enabled ? 'green' : 'gray'} dot>{c.enabled ? 'On' : 'Paused'}</Badge>
+          <b>{c.label}</b> <Badge tone={c.enabled ? 'green' : 'gray'} dot>{c.enabled ? 'On' : 'Paused'}</Badge>{c.incident && <> <Badge tone="blue" title="Opens an incident per problem and closes it when it recovers">incidents</Badge></>}
           <p className="muted small mono">{c.target}{subscribeUrl && <> · <a className="link" href={subscribeUrl} target="_blank" rel="noopener noreferrer">open topic<Icon name="external" size={12} /></a></>}</p>
         </div>
         <select className="input chan-level" aria-label={`${c.label}: which alerts`} value={c.minLevel} disabled={saving || !c.enabled}

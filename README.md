@@ -98,10 +98,15 @@ Secrets are written as `${NAME}` in the YAML and kept in `/etc/homedash/secrets.
 | Four-eyes approvals | `access.approvals.actions` | risky actions need a second administrator |
 | API tokens | always on (Access page) | scoped, expiring tokens for scripts and the mobile app |
 | Alerts | `ntfy:`, `gotify:`, `discord:`, `slack:`, `telegram:`, `email:`, `apprise:`, `webhook:` (any number) | Notifications: per-channel level filter, test button, delivery history |
+| Incidents | `pagerduty:`, `opsgenie:` | an incident opens per problem and closes on recovery; pages on errors by default |
 | Ask AI | `ai:` | log helper |
 | nginx | `nginx:` incl. `sites_dir`, `conf_dir`, `homedash`, `sites` | Nginx page; vhosts rendered for homedash and your services |
 
 Roles are `viewer` (read), `operator` (power, snapshots, scenes) and `admin` (databases, logs, nginx changes, host power). `npm run create-user -- <name> <role>` sets one; `--reset-2fa` is the lock-out escape.
+
+### Maintenance windows and routing
+
+On the Notifications page: a **maintenance window** (one-off or weekly, optionally limited to some alert kinds or to text such as a service name) holds alerts back while you work. Held-back alerts still appear in the history, and PagerDuty or Opsgenie still close incidents when something recovers. **Routes** (admin) send alerts to chosen channels by kind, severity, text and time of day, for example errors to PagerDuty and warnings to Slack. An alert that matches no route follows the normal channel settings, so a route can never make an alert disappear. The Notifications history has a "Silence for 1 hour" button on each alert.
 
 ### Access control
 

@@ -42,7 +42,7 @@ import type {
   LlamaState,
   LlamaStatus,
   LogAnalytics,
-  LoginResult, Features, ChannelPref, NotifyDelivery, AccessRole, ApiTokens, Approvals, ApprovalItem, PasskeyItem, AdminUser, AdminSession, AccessInfo,
+  SilenceItem, SilenceInput, RouteItem, RouteInput, LoginResult, Features, ChannelPref, NotifyDelivery, AccessRole, ApiTokens, Approvals, ApprovalItem, PasskeyItem, AdminUser, AdminSession, AccessInfo,
   LokiHistogram,
   LokiLine,
   LokiStatus,
@@ -268,6 +268,12 @@ export const api = {
   adminSessions: () => get<AdminSession[]>('/admin/sessions'),
   adminSessionEnd: (id: number) => del<{ ok: boolean }>(`/admin/sessions/${id}`),
   adminAccess: () => get<AccessInfo>('/admin/access'),
+  silences: () => get<SilenceItem[]>('/notify/silences'),
+  silenceSave: (id: number | null, b: SilenceInput) => (id === null ? post<{ id: number }>('/notify/silences', b) : put<{ id: number }>(`/notify/silences/${id}`, b)),
+  silenceDelete: (id: number) => del<{ ok: boolean }>(`/notify/silences/${id}`),
+  routes: () => get<RouteItem[]>('/notify/routes'),
+  routeSave: (id: number | null, b: RouteInput) => (id === null ? post<{ id: number }>('/notify/routes', b) : put<{ id: number }>(`/notify/routes/${id}`, b)),
+  routeDelete: (id: number) => del<{ ok: boolean }>(`/notify/routes/${id}`),
 };
 
 /** Optional runtime config shipped next to index.html (see API_NOTES.md). */

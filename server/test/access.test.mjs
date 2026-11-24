@@ -247,3 +247,33 @@ test('passkeys: config is public, sign-in options are issued, a forged response 
   assert.equal(reg.status, 200);
   assert.equal(reg.body.options.authenticatorSelection.residentKey, 'required');
 });
+
+test('silences and routes: permissions and validation', async () => {
+  const when = (h) => new Date(Date.now() + h * 3600_000).toISOString();
+  assert.equal((await viewer.call('POST', '/api/notify/silences', { name: 'x', startsAt: when(0), endsAt: when(1) })).status, 403);
+  assert.equal((await admin.call('POST', '/api/notify/silences', { name: '', endsAt: when(1) })).status, 400);
+  assert.equal((await admin.call('POST', '/api/notify/silences', { name: 'bad', startsAt: when(2), endsAt: when(1) })).status, 400);
+  assert.equal((await admin.call('POST', '/api/notify/silences', { name: 'long', startsAt: when(0), endsAt: when(24 * 40) })).status, 400);
+  assert.equal((await admin.call('POST', '/api/notify/silences', { name: 'c', startsAt: when(0), endsAt: when(1), categories: ['nope'] })).status, 400);
+  assert.equal((await admin.call('POST', '/api/notify/silences', { name: 'w', weekly: { days: [9], start: '22:00', minutes: 60 } })).status, 400);
+  const ok = await admin.call('POST', '/api/notify/silences', { name: 'Patch night', startsAt: when(-1), endsAt: when(2), categories: ['host'] });
+  assert.equal(ok.status, 200);
+  const list = (await viewer.call('GET', '/api/notify/silences')).body; // anyone can see what is held back
+  assert.equal(list.find((s) => s.name === 'Patch night').active, true);
+  const weekly = await admin.call('POST', '/api/notify/silences', { name: 'Weekend', weekly: { days: [6, 0], start: '22:00', minutes: 600 } });
+  assert.equal(weekly.status, 200);
+  assert.equal((await admin.call('DELETE', `/api/notify/silences/${ok.body.id}`)).status, 200);
+  assert.equal((await admin.call('DELETE', `/api/notify/silences/${weekly.body.id}`)).status, 200);
+  assert.equal((await admin.call('DELETE', `/api/notify/silences/${weekly.body.id}`)).status, 404);
+
+  // routes are administration: viewers cannot, and channel ids are validated
+  assert.equal((await viewer.call('POST', '/api/notify/routes', { name: 'r', channels: ['webhook'] })).status, 403);
+  assert.equal((await admin.call('POST', '/api/notify/routes', { name: 'r', channels: ['carrier-pigeon'] })).status, 400);
+  assert.equal((await admin.call('POST', '/api/notify/routes', { name: 'r', channels: [] })).status, 400);
+  const r = await admin.call('POST', '/api/notify/routes', { name: 'Outages page', categories: ['host'], minLevel: 'error', channels: ['pagerduty'] });
+  assert.equal(r.status, 200);
+  const prev = (await admin.call('POST', '/api/notify/preview', { category: 'host', level: 'error', title: 'DOWN', message: 'x' })).body;
+  assert.deepEqual(prev.channels, ['pagerduty']); assert.deepEqual(prev.routedBy, ['Outages page']);
+  assert.equal((await admin.call('POST', '/api/notify/preview', { category: 'tasks', level: 'error', title: 'x', message: 'x' })).body.channels, null);
+  assert.equal((await admin.call('DELETE', `/api/notify/routes/${r.body.id}`)).status, 200);
+});

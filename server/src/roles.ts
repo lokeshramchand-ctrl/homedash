@@ -17,7 +17,7 @@ export const atLeast = (have: Role, need: Role) => RANK[have] >= RANK[need];
 // Areas that expose data from other systems, not just the state of this dashboard.
 const ADMIN_PREFIXES = ['/api/data', '/api/logs', '/api/loki', '/api/metrics', '/api/admin'];
 // Changing the reverse proxy or powering off the node is administration, not operation.
-const ADMIN_WRITE_PREFIXES = ['/api/nginx', '/api/host'];
+const ADMIN_WRITE_PREFIXES = ['/api/nginx', '/api/host', '/api/notify/routes'];
 
 /** The lowest role allowed to call `method path` (path may be a matched route pattern or a decoded URL path). */
 export function requiredRole(method: string, path: string): Role {

@@ -221,6 +221,9 @@ export const cfg = {
     },
     apprise: { url: trim(env('APPRISE_URL')), key: env('APPRISE_KEY'), urls: env('APPRISE_URLS').split(/\s+/).filter(Boolean), tag: env('APPRISE_TAG') },
     webhook: { url: env('WEBHOOK_URL'), secret: env('WEBHOOK_SECRET') },
+    // Incident tools: they open an incident when something breaks and close it when it recovers.
+    pagerduty: { routingKey: env('PAGERDUTY_ROUTING_KEY'), url: trim(env('PAGERDUTY_URL', 'https://events.pagerduty.com')) },
+    opsgenie: { apiKey: env('OPSGENIE_API_KEY'), url: trim(env('OPSGENIE_URL') || (env('OPSGENIE_REGION', 'us').toLowerCase() === 'eu' ? 'https://api.eu.opsgenie.com' : 'https://api.opsgenie.com')) },
   },
 
   ai: {

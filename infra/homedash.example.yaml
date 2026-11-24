@@ -129,6 +129,13 @@ auth:
 #   key: homedash                             # a saved Apprise configuration key ...
 #   # urls: ["pover://user@token"]            # ... or stateless: the service URLs to notify
 #   # tag: homelab
+# pagerduty:                                  # opens an incident per problem and closes it when it recovers
+#   routing_key: ${PAGERDUTY_KEY}             # Events API v2 integration key (32 characters)
+# opsgenie:
+#   api_key: ${OPSGENIE_KEY}
+#   region: us                                # us | eu
+# Incident tools page for errors only by default (change it per channel on the Notifications page), and always
+# receive recoveries so an incident never stays open. Maintenance windows and routing rules are on that page too.
 # webhook:                                    # anything else: POSTs JSON {source, title, message, level, category, ...}
 #   url: https://example.com/hooks/homedash
 #   secret: ${WEBHOOK_SECRET}                 # sent as a Bearer token

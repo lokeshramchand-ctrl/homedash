@@ -101,6 +101,14 @@ CREATE TABLE IF NOT EXISTS approvals (
 CREATE INDEX IF NOT EXISTS approvals_status ON approvals (status, created_at DESC);
 CREATE TABLE IF NOT EXISTS scim_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, external_id TEXT, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS scim_members (group_id TEXT NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (group_id, user_id));
+CREATE TABLE IF NOT EXISTS silences (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, reason TEXT, starts_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, categories TEXT, contains TEXT,
+  days TEXT, tod_start TEXT, tod_minutes INTEGER, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alert_routes (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, categories TEXT, min_level TEXT NOT NULL, contains TEXT,
+  channels TEXT NOT NULL, days TEXT, tod_start TEXT, tod_minutes INTEGER, position INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS oidc_states (id TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL);
 `;
 
@@ -111,7 +119,7 @@ export function connectDb(): void {
   d.exec(SCHEMA);
   migrate();
   purgeExpired();
-  setInterval(purgeExpired, 3_600_000).unref();
+  setInterval(() => { purgeExpired(); purgeSilences(); purgeApprovals(); }, 3_600_000).unref();
 }
 
 /** The raw SQLite handle, for modules that own their own tables (the data manager). */
@@ -534,3 +542,39 @@ export function consumeApproval(id: string): boolean {
   return Number(d.prepare("UPDATE approvals SET consumed_at = ? WHERE id = ? AND status = 'approved' AND consumed_at IS NULL AND expires_at > ?").run(Date.now(), id, Date.now()).changes) > 0;
 }
 export const purgeApprovals = () => { d.prepare('DELETE FROM approvals WHERE created_at < ?').run(Date.now() - 90 * 86_400_000); };
+
+// ---- alert silences (maintenance windows) and routing rules ---------------------------------------------
+export interface WeeklyWindow { days: number[]; start: string; minutes: number } // days 0=Sunday, start "HH:MM" server time
+export interface SilenceRow { id: number; name: string; reason: string; startsAt: number; endsAt: number; categories: string[]; contains: string; weekly: WeeklyWindow | null; createdBy: string; createdAt: number }
+const weeklyOf = (days: unknown, start: unknown, minutes: unknown): WeeklyWindow | null =>
+  days && start ? { days: String(days).split(',').filter(Boolean).map(Number), start: String(start), minutes: Number(minutes ?? 60) } : null;
+const silenceOf = (r: any): SilenceRow => ({
+  id: r.id, name: r.name, reason: r.reason ?? '', startsAt: r.starts_at, endsAt: r.ends_at, categories: json<string[]>(r.categories) ?? [], contains: r.contains ?? '',
+  weekly: weeklyOf(r.days, r.tod_start, r.tod_minutes), createdBy: r.created_by, createdAt: r.created_at,
+});
+export const listSilences = (): SilenceRow[] => (d.prepare('SELECT * FROM silences ORDER BY ends_at DESC').all() as any[]).map(silenceOf);
+export function saveSilence(id: number | null, s: Omit<SilenceRow, 'id' | 'createdAt'>): number {
+  const a = [s.name, s.reason, s.startsAt, s.endsAt, JSON.stringify(s.categories), s.contains || null, s.weekly ? s.weekly.days.join(',') : null, s.weekly?.start ?? null, s.weekly?.minutes ?? null] as const;
+  if (id === null) return Number(d.prepare('INSERT INTO silences (name, reason, starts_at, ends_at, categories, contains, days, tod_start, tod_minutes, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...a, s.createdBy, Date.now()).lastInsertRowid);
+  d.prepare('UPDATE silences SET name = ?, reason = ?, starts_at = ?, ends_at = ?, categories = ?, contains = ?, days = ?, tod_start = ?, tod_minutes = ? WHERE id = ?').run(...a, id);
+  return id;
+}
+export const deleteSilence = (id: number): boolean => Number(d.prepare('DELETE FROM silences WHERE id = ?').run(id).changes) > 0;
+export const purgeSilences = () => { d.prepare('DELETE FROM silences WHERE ends_at < ? AND days IS NULL').run(Date.now() - 7 * 86_400_000); };
+
+export interface RouteRow { id: number; name: string; enabled: boolean; categories: string[]; minLevel: 'info' | 'warn' | 'error'; contains: string; channels: string[]; weekly: WeeklyWindow | null; position: number }
+const routeOf = (r: any): RouteRow => ({
+  id: r.id, name: r.name, enabled: !!r.enabled, categories: json<string[]>(r.categories) ?? [], minLevel: r.min_level, contains: r.contains ?? '',
+  channels: json<string[]>(r.channels) ?? [], weekly: weeklyOf(r.days, r.tod_start, r.tod_minutes), position: r.position,
+});
+export const listRoutes = (): RouteRow[] => (d.prepare('SELECT * FROM alert_routes ORDER BY position, id').all() as any[]).map(routeOf);
+export function saveRoute(id: number | null, r: Omit<RouteRow, 'id' | 'position'>): number {
+  const a = [r.name, r.enabled ? 1 : 0, JSON.stringify(r.categories), r.minLevel, r.contains || null, JSON.stringify(r.channels), r.weekly ? r.weekly.days.join(',') : null, r.weekly?.start ?? null, r.weekly?.minutes ?? null] as const;
+  if (id === null) {
+    const pos = ((d.prepare('SELECT MAX(position) AS p FROM alert_routes').get() as any)?.p ?? 0) + 1;
+    return Number(d.prepare('INSERT INTO alert_routes (name, enabled, categories, min_level, contains, channels, days, tod_start, tod_minutes, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...a, pos).lastInsertRowid);
+  }
+  d.prepare('UPDATE alert_routes SET name = ?, enabled = ?, categories = ?, min_level = ?, contains = ?, channels = ?, days = ?, tod_start = ?, tod_minutes = ? WHERE id = ?').run(...a, id);
+  return id;
+}
+export const deleteRoute = (id: number): boolean => Number(d.prepare('DELETE FROM alert_routes WHERE id = ?').run(id).changes) > 0;

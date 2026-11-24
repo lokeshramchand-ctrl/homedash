@@ -133,14 +133,14 @@ export interface ConfigRow { key: string; value: string | null; pending: string 
 export interface Snapshot { name: string; parent: string | null; description: string; time: number | null; vmstate: boolean; current: boolean }
 export type AlertLevel = 'info' | 'warn' | 'error';
 export interface ChannelPref { enabled: boolean; minLevel: AlertLevel }
-export interface NotifyChannel { id: string; label: string; needs: string; configured: boolean; target: string; enabled: boolean; minLevel: AlertLevel }
+export interface NotifyChannel { id: string; label: string; needs: string; configured: boolean; target: string; enabled: boolean; minLevel: AlertLevel; incident?: boolean }
 export interface NotifySettings { enabled: boolean; recoveries: boolean; mutedUntil: string | null; categories: Record<string, boolean>; channels: Record<string, ChannelPref> }
 export interface NotifyDelivery { channel: string; ok: boolean; error?: string }
 export interface NotifyInfo {
   configured: boolean; channels: NotifyChannel[]; server: string; topic: string; subscribeUrl: string;
   thresholds: { cpu: number; mem: number; disk: number };
   settings: NotifySettings; categories: string[];
-  sent: { ts: string; title: string; message: string; priority: number; category: string; ok: boolean; error?: string; deliveries: NotifyDelivery[] }[];
+  sent: { ts: string; title: string; message: string; priority: number; category: string; ok: boolean; error?: string; deliveries: NotifyDelivery[]; silencedBy?: string; routedBy?: string[]; resolve?: boolean }[];
 }
 
 export type LogKind = 'start' | 'stop' | 'lifecycle' | 'start-failed' | 'crash' | 'oom' | 'gpu' | 'agent' | 'hardware' | 'error' | 'info';
@@ -374,3 +374,9 @@ export interface AccessInfo {
   passkeys: { enabled: boolean; rpId: string };
   approvals: { actions: string[]; ttlMinutes: number; allowSelf: boolean }; tokens: { maxDays: number; defaultDays: number };
 }
+
+export interface WeeklyWindow { days: number[]; start: string; minutes: number }
+export interface SilenceItem { id: number; name: string; reason: string; startsAt: number; endsAt: number; categories: string[]; contains: string; weekly: WeeklyWindow | null; createdBy: string; createdAt: number; active: boolean; upcoming: boolean; expired: boolean }
+export interface SilenceInput { name: string; reason?: string; startsAt?: string; endsAt?: string; categories: string[]; contains?: string; weekly?: WeeklyWindow | null }
+export interface RouteItem { id: number; name: string; enabled: boolean; categories: string[]; minLevel: AlertLevel; contains: string; channels: string[]; weekly: WeeklyWindow | null; position: number }
+export interface RouteInput { name: string; enabled?: boolean; categories: string[]; minLevel: AlertLevel; contains?: string; channels: string[]; weekly?: WeeklyWindow | null }

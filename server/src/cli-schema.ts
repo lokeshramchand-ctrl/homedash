@@ -62,6 +62,7 @@ const ROWS: Row[] = [
   R('email.insecure_tls', 'SMTP_INSECURE_TLS'),
   R('apprise.url', 'APPRISE_URL'), R('apprise.key', 'APPRISE_KEY'), R('apprise.urls', 'APPRISE_URLS', list(' ')), R('apprise.tag', 'APPRISE_TAG'),
   R('webhook.url', 'WEBHOOK_URL'), R('webhook.secret', 'WEBHOOK_SECRET'),
+  R('pagerduty.routing_key', 'PAGERDUTY_ROUTING_KEY'), R('opsgenie.api_key', 'OPSGENIE_API_KEY'), R('opsgenie.region', 'OPSGENIE_REGION'),
   R('ai.base_url', 'AI_BASE_URL'), R('ai.api_key', 'AI_API_KEY'), R('ai.model', 'AI_MODEL'), R('ai.label', 'AI_LABEL'),
 
   R('llama.url', 'LLAMA_URL'), R('llama.api_key', 'LLAMA_API_KEY'), R('llama.agent_url', 'LLAMA_AGENT_URL'), R('llama.agent_token', 'LLAMA_AGENT_TOKEN'),
@@ -88,7 +89,7 @@ export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
-export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'env'];
+export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'env'];
 
 /**
  * Secrets the tool creates itself and then keeps (generated.env), so re-applying never rotates them.
@@ -203,6 +204,8 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
   if (env.APPRISE_URL && !env.APPRISE_KEY && !env.APPRISE_URLS) problems.push('apprise: APPRISE_URL is set but neither key nor urls is');
   if (env.DISCORD_WEBHOOK_URL && !/^https:\/\/([a-z]+\.)?discord(app)?\.com\/api\/webhooks\//.test(env.DISCORD_WEBHOOK_URL)) problems.push('DISCORD_WEBHOOK_URL: must be a https://discord.com/api/webhooks/... URL');
   if (env.SLACK_WEBHOOK_URL && !/^https:\/\/hooks\.slack(-gov)?\.com\//.test(env.SLACK_WEBHOOK_URL)) problems.push('SLACK_WEBHOOK_URL: must be a https://hooks.slack.com/... URL');
+  if (env.PAGERDUTY_ROUTING_KEY && env.PAGERDUTY_ROUTING_KEY.length < 20) problems.push('pagerduty.routing_key: expected the 32-character Events API v2 integration key');
+  if (env.OPSGENIE_REGION && !['us', 'eu'].includes(env.OPSGENIE_REGION.toLowerCase())) problems.push('opsgenie.region: use us or eu');
   if (env.SMTP_PORT && !/^\d{1,5}$/.test(env.SMTP_PORT)) problems.push('SMTP_PORT: must be a port number');
   for (const k of ['PVE_URL', 'GRAFANA_URL', 'KUMA_URL', 'LOKI_URL', 'PROMETHEUS_URL', 'NTFY_URL', 'AI_BASE_URL', 'GOTIFY_URL', 'APPRISE_URL', 'WEBHOOK_URL', 'LLAMA_URL', 'LLAMA_AGENT_URL', 'GPU_AGENT_URL']) {
     if (env[k] && !/^https?:\/\/[^\s/]+/.test(env[k])) problems.push(`${k}: "${env[k]}" is not an http(s) URL`);
@@ -232,6 +235,8 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'email', label: 'Alerts: e-mail (SMTP)', on: has('SMTP_HOST', 'SMTP_FROM', 'SMTP_TO'), hint: 'email.host, from, to' },
     { id: 'apprise', label: 'Alerts: Apprise', on: has('APPRISE_URL') && (has('APPRISE_KEY') || has('APPRISE_URLS')), hint: 'apprise.url + key or urls' },
     { id: 'webhook', label: 'Alerts: JSON webhook', on: has('WEBHOOK_URL'), hint: 'webhook.url' },
+    { id: 'pagerduty', label: 'Incidents: PagerDuty', on: (env.PAGERDUTY_ROUTING_KEY ?? '').length >= 20, hint: 'pagerduty.routing_key' },
+    { id: 'opsgenie', label: 'Incidents: Opsgenie', on: (env.OPSGENIE_API_KEY ?? '').length >= 16, hint: 'opsgenie.api_key' },
     { id: 'ai', label: 'Ask AI log helper', on: has('AI_BASE_URL', 'AI_MODEL'), hint: 'ai.base_url, model' },
     { id: 'sso', label: 'OIDC single sign-on', on: has('OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_REDIRECT_URI') && (has('OIDC_ALLOWED_USERS') || has('OIDC_REQUIRED_ROLE')), hint: 'auth.oidc.* incl. allowed_users or required_role' },
     { id: 'teams', label: 'Teams (per-guest access)', on: !!env.ACCESS_TEAMS && env.ACCESS_TEAMS !== '{}', hint: 'access.teams' },

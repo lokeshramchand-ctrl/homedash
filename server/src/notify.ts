@@ -3,6 +3,7 @@
 // host resources, failed Proxmox tasks, disk health and stopped PVE services.
 import type { FastifyInstance } from 'fastify';
 import { crowdsecWatch } from './crowdsec.js';
+import { registerAlertRules, routeChannels, silenceFor } from './alertrules.js';
 import { CHANNELS, anyChannelConfigured, channelById } from './channels.js';
 import type { Level, Msg } from './channels.js';
 import { cfg, pveConfigured } from './config.js';
@@ -17,8 +18,8 @@ export const CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gp
 type Category = (typeof CATEGORIES)[number];
 interface ChannelPref { enabled: boolean; minLevel: Level }
 interface Settings { enabled: boolean; categories: Record<Category, boolean>; recoveries: boolean; mutedUntil: string | null; channels: Record<string, ChannelPref> }
-// E-mail defaults to warnings and errors only so recovery notices do not fill an inbox; everything else gets everything.
-const defaultPref = (id: string): ChannelPref => ({ enabled: true, minLevel: id === 'email' ? 'warn' : 'info' });
+// E-mail defaults to warnings and errors, incident tools (they page someone) to errors only; everything else gets everything.
+const defaultPref = (id: string): ChannelPref => ({ enabled: true, minLevel: id === 'email' ? 'warn' : CHANNELS.find((c) => c.id === id)?.incident ? 'error' : 'info' });
 const DEFAULTS: Settings = {
   enabled: true, categories: Object.fromEntries(CATEGORIES.map((c) => [c, true])) as Record<Category, boolean>, recoveries: true, mutedUntil: null,
   channels: Object.fromEntries(CHANNELS.map((c) => [c.id, defaultPref(c.id)])),
@@ -28,7 +29,7 @@ const isLevel = (v: unknown): v is Level => v === 'info' || v === 'warn' || v ==
 
 let settings: Settings = DEFAULTS;
 interface Delivery { channel: string; ok: boolean; error?: string }
-interface Sent { ts: string; title: string; message: string; priority: number; category: Category; ok: boolean; error?: string; deliveries: Delivery[] }
+interface Sent { ts: string; title: string; message: string; priority: number; category: Category; ok: boolean; error?: string; deliveries: Delivery[]; silencedBy?: string; routedBy?: string[]; resolve?: boolean }
 const sent: Sent[] = [];
 const lastByKey = new Map<string, number>();
 let hourStart = Date.now(), hourCount = 0;
@@ -41,8 +42,21 @@ async function loadSettings() {
   } catch { /* keep defaults if the database is unavailable */ }
 }
 
-/** Channels that should receive a message of this level right now. */
-const targetsFor = (level: Level) => CHANNELS.filter((c) => c.configured() && (settings.channels[c.id] ?? defaultPref(c.id)).enabled && RANK[level] >= RANK[(settings.channels[c.id] ?? defaultPref(c.id)).minLevel]);
+/**
+ * Channels that should receive this message right now. A matching route decides (its own level filter applies);
+ * with no matching route each channel's own on/off and minimum level decide. Incident tools always get recoveries,
+ * otherwise their incidents would stay open.
+ */
+function targetsFor(level: Level, route: string[] | null, resolve: boolean) {
+  return CHANNELS.filter((c) => {
+    if (!c.configured()) return false;
+    const pref = settings.channels[c.id] ?? defaultPref(c.id);
+    if (!pref.enabled) return false;
+    if (route) return route.includes(c.id);
+    if (resolve && c.incident) return true;
+    return RANK[level] >= RANK[pref.minLevel];
+  });
+}
 
 /** Delivers to the given channels in parallel; one failing channel never blocks the others. */
 async function deliver(channels: typeof CHANNELS, m: Msg): Promise<Delivery[]> {
@@ -50,31 +64,56 @@ async function deliver(channels: typeof CHANNELS, m: Msg): Promise<Delivery[]> {
   return results.map((r, i) => (r.status === 'fulfilled' ? { channel: channels[i].id, ok: true } : { channel: channels[i].id, ok: false, error: (r.reason as Error).message }));
 }
 
-const record = (rec: Omit<Sent, 'ok' | 'error'> & { deliveries: Delivery[] }) => {
+const record = (rec: Omit<Sent, 'ok' | 'error'>) => {
   const failed = rec.deliveries.filter((d) => !d.ok);
   sent.unshift({ ...rec, ok: failed.length === 0, ...(failed.length ? { error: failed.map((d) => `${d.channel}: ${d.error}`).join(' · ') } : {}) });
   if (sent.length > 100) sent.pop();
 };
 
-/** Queue one alert. Duplicate keys within 10 minutes and anything past the hourly cap are dropped. */
+/**
+ * Queue one alert. Duplicate keys within 10 minutes and anything past the hourly cap are dropped.
+ * By convention a recovery uses the problem's key plus "|ok": incident tools (PagerDuty, Opsgenie) close that incident.
+ */
 export function alert(category: Category, level: EventRow['level'], title: string, message: string, key = `${category}|${title}|${message}`) {
   if (!anyChannelConfigured() || !settings.enabled || !settings.categories[category]) return;
   if (level === 'info' && !settings.recoveries) return;
   if (settings.mutedUntil && new Date(settings.mutedUntil).getTime() > Date.now()) return;
-  const targets = targetsFor(level);
-  if (!targets.length) return;
+  const resolve = key.endsWith('|ok');
+  const dedupKey = resolve ? key.slice(0, -3) : key;
   const now = Date.now();
   if ((lastByKey.get(key) ?? 0) > now - DEDUPE_MS) return;
+  const priority = level === 'error' ? 5 : level === 'warn' ? 4 : 2;
+  const base = { ts: new Date().toISOString(), title, message, priority, category, resolve };
+
+  // A maintenance window holds the alert back, but it stays visible in the history. Recoveries still reach incident tools.
+  const sil = silenceFor(category, title, message);
+  const route = routeChannels(category, level, title, message);
+  let targets = targetsFor(level, route?.channels ?? null, resolve);
+  if (sil) {
+    targets = resolve ? targets.filter((c) => c.incident) : [];
+    if (!targets.length) { lastByKey.set(key, now); record({ ...base, deliveries: [], silencedBy: sil.name }); return; }
+  }
+  if (!targets.length) return;
   if (now - hourStart > 3600_000) { hourStart = now; hourCount = 0; }
   if (++hourCount > MAX_PER_HOUR) return;
   lastByKey.set(key, now);
-  const priority = level === 'error' ? 5 : level === 'warn' ? 4 : 2;
   const tags = level === 'error' ? ['rotating_light'] : level === 'warn' ? ['warning'] : ['white_check_mark'];
-  const msg: Msg = { title, message, level, category, priority, tags, clickUrl: cfg.ntfy.clickUrl || undefined };
-  void deliver(targets, msg).then((deliveries) => record({ ts: new Date().toISOString(), title, message, priority, category, deliveries }));
+  const msg: Msg = { title, message, level, category, priority, tags, clickUrl: cfg.ntfy.clickUrl || undefined, dedupKey, resolve };
+  void deliver(targets, msg).then((deliveries) => record({ ...base, deliveries, ...(route ? { routedBy: route.names } : {}) }));
 }
 
 const TITLES: Record<EventRow['source'], string> = { app: 'Dashboard', db: 'Database', host: 'Proxmox host', guest: 'Guest', monitor: 'Uptime monitor', auth: 'Sign-in' };
+/**
+ * A stable key per problem, so a recovery can close the incident its failure opened: one per monitor, one for the
+ * Proxmox API. Anything else keeps the old per-message key (it de-duplicates but does not pair).
+ */
+function eventKey(source: EventRow['source'], level: EventRow['level'], message: string): string | undefined {
+  const ok = level === 'info' ? '|ok' : '';
+  if (source === 'monitor') { const m = /^(.*): \w+ → \w+$/.exec(message); if (m) return `mon|${m[1]}${ok}`; }
+  if (source === 'host' && /^Proxmox API (unreachable|reachable again)/.test(message)) return `pve|api${ok}`;
+  return undefined;
+}
+
 /** Called by logEvent for every system event. */
 export function alertFromEvent(level: EventRow['level'], source: EventRow['source'], message: string) {
   if (level === 'info') {
@@ -84,7 +123,7 @@ export function alertFromEvent(level: EventRow['level'], source: EventRow['sourc
   }
   if (source === 'monitor' && level === 'warn') return; // pending = Kuma retrying; the down that may follow is what matters
   const title = `${level === 'error' ? 'DOWN' : level === 'warn' ? 'Warning' : 'Recovered'} · ${TITLES[source]}`;
-  alert(source, level, title, message);
+  alert(source, level, title, message, eventKey(source, level, message));
 }
 
 // ---- watcher: thresholds and health Proxmox only exposes by polling ----
@@ -209,10 +248,11 @@ export function startNotify(app: FastifyInstance) {
 }
 
 export function registerNotify(app: FastifyInstance) {
+  registerAlertRules(app, CATEGORIES, CHANNELS.map((c) => c.id));
   const channelInfo = () => CHANNELS.map((c) => {
     const pref = settings.channels[c.id] ?? defaultPref(c.id);
     const configured = c.configured();
-    return { id: c.id, label: c.label, needs: c.needs, configured, target: configured ? c.target() : '', enabled: pref.enabled, minLevel: pref.minLevel };
+    return { id: c.id, label: c.label, needs: c.needs, configured, target: configured ? c.target() : '', enabled: pref.enabled, minLevel: pref.minLevel, incident: !!c.incident };
   });
 
   app.get('/api/notify', async () => ({
@@ -262,7 +302,7 @@ export function registerNotify(app: FastifyInstance) {
       if (!targets.length) throw notConfigured('An alert channel');
     }
     const who = req.user?.username ?? 'admin';
-    const msg: Msg = { title: 'homedash test', message: `Test notification sent by ${who}. If you can read this, alerts reach this channel.`, level: 'info', category: 'app', priority: 3, tags: ['bell'], clickUrl: cfg.ntfy.clickUrl || undefined };
+    const msg: Msg = { title: 'homedash test', message: `Test notification sent by ${who}. If you can read this, alerts reach this channel.`, level: 'info', category: 'app', priority: 3, tags: ['bell'], clickUrl: cfg.ntfy.clickUrl || undefined, test: true };
     const deliveries = await deliver(targets, msg);
     record({ ts: new Date().toISOString(), title: 'homedash test', message: 'Test notification', priority: 3, category: 'app', deliveries });
     req.log.info({ user: who, channels: deliveries.map((d) => `${d.channel}:${d.ok ? 'ok' : 'fail'}`) }, 'notify test');
