@@ -11,6 +11,7 @@ const SSO_ERRORS: Record<string, string> = {
   SSO_FAILED: 'Single sign-on could not be verified.',
   SSO_UNAVAILABLE: 'The identity provider is unreachable right now.',
   USER_NOT_ALLOWED: 'This account is not allowed to use homedash.',
+  ACCOUNT_DISABLED: 'This account has been deactivated.',
   ROLE_MISSING: 'This account lacks the required role.',
 };
 

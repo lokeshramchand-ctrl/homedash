@@ -12,6 +12,10 @@ export interface UserRow {
   id: number; username: string; passwordHash: string; createdAt: number; lastLoginAt: number | null; lastLoginIp: string | null;
   role: Role | null; // null = created before roles existed: treated as admin
   mfa: MfaData | null; mfaSetup: { secret: string; expireAt: number } | null; mfaExempt: boolean;
+  teams: string[]; // names from access.teams in homedash.yaml; empty = not scoped (the role applies everywhere)
+  groups: string[]; // identity-provider groups last seen (OIDC login or SCIM)
+  disabled: boolean; // deprovisioned: cannot sign in, tokens stop working
+  scimId: string | null; external: boolean; // created by SCIM / an SSO login (no local password)
 }
 export type MfaState = 'ok' | 'pending' | 'enroll';
 export interface SessionRow {
@@ -78,6 +82,25 @@ CREATE TABLE IF NOT EXISTS datasource_audit (
 );
 CREATE INDEX IF NOT EXISTS ds_audit_ts ON datasource_audit (ts DESC);
 CREATE TABLE IF NOT EXISTS gpu_samples (minute INTEGER PRIMARY KEY, util REAL NOT NULL, busy INTEGER NOT NULL, top TEXT, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, name TEXT NOT NULL, prefix TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, last_used_at INTEGER, last_ip TEXT, revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id);
+CREATE TABLE IF NOT EXISTS passkeys (
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, credential_id TEXT NOT NULL UNIQUE, public_key TEXT NOT NULL, counter INTEGER NOT NULL,
+  transports TEXT, name TEXT NOT NULL, created_at INTEGER NOT NULL, last_used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS passkeys_user ON passkeys (user_id);
+CREATE TABLE IF NOT EXISTS webauthn_challenges (id TEXT PRIMARY KEY, user_id INTEGER, challenge TEXT NOT NULL, kind TEXT NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS approvals (
+  id TEXT PRIMARY KEY, action TEXT NOT NULL, summary TEXT NOT NULL, method TEXT NOT NULL, path TEXT NOT NULL, body TEXT, fingerprint TEXT NOT NULL,
+  requested_by TEXT NOT NULL, requested_by_id INTEGER NOT NULL, ip TEXT, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  status TEXT NOT NULL, decided_by TEXT, decided_at INTEGER, note TEXT, consumed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS approvals_status ON approvals (status, created_at DESC);
+CREATE TABLE IF NOT EXISTS scim_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, external_id TEXT, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS scim_members (group_id TEXT NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (group_id, user_id));
 CREATE TABLE IF NOT EXISTS oidc_states (id TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL);
 `;
 
@@ -103,6 +126,10 @@ function migrate() {
   add('users', 'mfa', 'TEXT');
   add('users', 'mfa_setup', 'TEXT');
   add('users', 'mfa_exempt', 'INTEGER NOT NULL DEFAULT 0');
+  add('users', 'teams', 'TEXT');
+  add('users', 'groups', 'TEXT');
+  add('users', 'disabled', 'INTEGER NOT NULL DEFAULT 0');
+  add('users', 'scim_id', 'TEXT');
   add('sessions', 'role', 'TEXT');
   add('sessions', 'mfa', 'TEXT');
   add('sessions', 'last_seen_at', 'INTEGER');
@@ -113,7 +140,7 @@ export const closeDb = () => { try { d?.close(); } catch { /* already closed */ 
 /** Replaces the TTL indexes a document database would use. */
 function purgeExpired() {
   const now = Date.now();
-  for (const t of ['sessions', 'login_attempts', 'kuma_samples', 'system_events', 'oidc_states', 'datasource_audit', 'gpu_samples']) {
+  for (const t of ['sessions', 'login_attempts', 'kuma_samples', 'system_events', 'oidc_states', 'datasource_audit', 'gpu_samples', 'webauthn_challenges']) {
     d.prepare(`DELETE FROM ${t} WHERE expires_at < ?`).run(now);
   }
 }
@@ -128,6 +155,8 @@ const userOf = (r: any): UserRow | null => r ? ({
   id: r.id, username: r.username, passwordHash: r.password_hash, createdAt: r.created_at, lastLoginAt: r.last_login_at, lastLoginIp: r.last_login_ip ?? null,
   role: (['viewer', 'operator', 'admin'] as const).find((x) => x === r.role) ?? null,
   mfa: json<MfaData>(r.mfa), mfaSetup: json<{ secret: string; expireAt: number }>(r.mfa_setup), mfaExempt: !!r.mfa_exempt,
+  teams: json<string[]>(r.teams) ?? [], groups: json<string[]>(r.groups) ?? [], disabled: !!r.disabled, scimId: r.scim_id ?? null,
+  external: !!r.sso_sub || !!r.scim_id,
 }) : null;
 
 // ---- users -------------------------------------------------------------------------------------
@@ -154,11 +183,21 @@ export const touchLogin = (id: number, ip: string | null = null) => {
   d.prepare('UPDATE users SET last_login_at = ?, last_login_ip = COALESCE(?, last_login_ip) WHERE id = ?').run(Date.now(), ip, id);
 };
 
-/** SSO users are keyed by issuer|sub; the display username and role can change between logins. */
-export function upsertSsoUser(ssoSub: string, username: string, role: Role = 'admin'): UserRow {
+/**
+ * SSO users are keyed by issuer|sub; the display username, role, teams and groups can change between logins.
+ * A user pre-provisioned by SCIM (same username, no sub yet) is adopted instead of duplicated.
+ */
+export function upsertSsoUser(ssoSub: string, username: string, role: Role = 'admin', extra: { teams?: string[]; groups?: string[] } = {}): UserRow {
   const now = Date.now();
-  d.prepare(`INSERT INTO users (username, password_hash, created_at, last_login_at, sso_sub, role) VALUES (?, '', ?, ?, ?, ?)
-    ON CONFLICT (sso_sub) DO UPDATE SET username = excluded.username, last_login_at = excluded.last_login_at, role = excluded.role`).run(username, now, now, ssoSub, role);
+  const adopt = d.prepare('UPDATE users SET sso_sub = ? WHERE username = ? AND sso_sub IS NULL AND scim_id IS NOT NULL').run(ssoSub, username);
+  if (!adopt.changes) {
+    d.prepare(`INSERT INTO users (username, password_hash, created_at, last_login_at, sso_sub, role, teams, groups) VALUES (?, '', ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (sso_sub) DO UPDATE SET username = excluded.username, last_login_at = excluded.last_login_at`)
+      .run(username, now, now, ssoSub, role, JSON.stringify(extra.teams ?? []), JSON.stringify(extra.groups ?? []));
+  }
+  // The identity provider is the source of truth for role, teams and groups on every sign-in.
+  d.prepare('UPDATE users SET role = ?, teams = ?, groups = ?, last_login_at = ? WHERE sso_sub = ?')
+    .run(role, JSON.stringify(extra.teams ?? []), JSON.stringify(extra.groups ?? []), now, ssoSub);
   return userOf(d.prepare('SELECT * FROM users WHERE sso_sub = ?').get(ssoSub))!;
 }
 
@@ -363,3 +402,135 @@ export const upsertGpuSample = (minute: number, util: number, busy: number, top:
 };
 export const listGpuSamples = (fromMinute: number, limit: number): { minute: number; util: number; busy: number }[] =>
   d.prepare('SELECT minute, util, busy FROM gpu_samples WHERE minute >= ? ORDER BY minute LIMIT ?').all(fromMinute, limit) as any;
+
+// ---- administration of users ----------------------------------------------------------------------
+export const listUsers = (): UserRow[] => (d.prepare('SELECT * FROM users ORDER BY username').all() as any[]).map((r) => userOf(r)!);
+export function setUserAccess(id: number, p: { role?: Role; teams?: string[]; disabled?: boolean }) {
+  if (p.role) d.prepare('UPDATE users SET role = ? WHERE id = ?').run(p.role, id);
+  if (p.teams) d.prepare('UPDATE users SET teams = ? WHERE id = ?').run(JSON.stringify(p.teams), id);
+  if (p.disabled !== undefined) {
+    d.prepare('UPDATE users SET disabled = ? WHERE id = ?').run(p.disabled ? 1 : 0, id);
+    if (p.disabled) { deleteUserSessions(id); d.prepare('UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(Date.now(), id); }
+  }
+}
+export const countAdmins = (): number => (d.prepare("SELECT COUNT(*) AS n FROM users WHERE (role = 'admin' OR role IS NULL) AND disabled = 0").get() as any).n;
+export const listSessions = (userId?: number): { id: number; userId: number; username: string; createdAt: number; lastSeenAt: number; expiresAt: number; ip: string | null; userAgent: string | null; mfa: string | null }[] =>
+  (d.prepare(`SELECT * FROM sessions WHERE expires_at > ? ${userId ? 'AND user_id = ?' : ''} ORDER BY COALESCE(last_seen_at, created_at) DESC`).all(...(userId ? [Date.now(), userId] : [Date.now()])) as any[]).map((r) => ({
+    id: r.id, userId: r.user_id, username: r.username, createdAt: r.created_at, lastSeenAt: r.last_seen_at ?? r.created_at, expiresAt: r.expires_at, ip: r.ip, userAgent: r.user_agent, mfa: r.mfa,
+  }));
+
+// ---- SCIM provisioning -------------------------------------------------------------------------------
+export function scimUpsertUser(p: { scimId?: string; username: string; active: boolean; role: Role; teams: string[]; groups: string[] }): UserRow {
+  const existing = d.prepare('SELECT * FROM users WHERE scim_id = ? OR username = ?').get(p.scimId ?? '', p.username) as any;
+  if (existing) {
+    d.prepare('UPDATE users SET scim_id = COALESCE(scim_id, ?), disabled = ?, role = ?, teams = ?, groups = ? WHERE id = ?')
+      .run(p.scimId ?? null, p.active ? 0 : 1, p.role, JSON.stringify(p.teams), JSON.stringify(p.groups), existing.id);
+    if (!p.active) setUserAccess(existing.id, { disabled: true });
+    return userOf(d.prepare('SELECT * FROM users WHERE id = ?').get(existing.id))!;
+  }
+  d.prepare("INSERT INTO users (username, password_hash, created_at, role, teams, groups, scim_id, disabled) VALUES (?, '', ?, ?, ?, ?, ?, ?)")
+    .run(p.username, Date.now(), p.role, JSON.stringify(p.teams), JSON.stringify(p.groups), p.scimId ?? null, p.active ? 0 : 1);
+  return userOf(d.prepare('SELECT * FROM users WHERE username = ?').get(p.username))!;
+}
+export const findUserByScimId = (id: string): UserRow | null => userOf(d.prepare('SELECT * FROM users WHERE scim_id = ?').get(id));
+export function deleteScimUser(id: number) {
+  setUserAccess(id, { disabled: true });
+  d.prepare('DELETE FROM scim_members WHERE user_id = ?').run(id);
+}
+export interface ScimGroupRow { id: string; name: string; externalId: string | null; members: number[] }
+const groupOf = (r: any): ScimGroupRow => ({
+  id: r.id, name: r.name, externalId: r.external_id ?? null,
+  members: (d.prepare('SELECT user_id FROM scim_members WHERE group_id = ?').all(r.id) as any[]).map((m) => m.user_id),
+});
+export const listScimGroups = (): ScimGroupRow[] => (d.prepare('SELECT * FROM scim_groups ORDER BY name').all() as any[]).map(groupOf);
+export const getScimGroup = (id: string): ScimGroupRow | null => { const r = d.prepare('SELECT * FROM scim_groups WHERE id = ?').get(id); return r ? groupOf(r) : null; };
+export const saveScimGroup = (g: { id: string; name: string; externalId?: string | null }) => {
+  d.prepare('INSERT INTO scim_groups (id, name, external_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name, external_id = excluded.external_id')
+    .run(g.id, g.name, g.externalId ?? null, Date.now());
+};
+export const setScimMembers = (groupId: string, userIds: number[]) => {
+  d.prepare('DELETE FROM scim_members WHERE group_id = ?').run(groupId);
+  for (const u of new Set(userIds)) d.prepare('INSERT OR IGNORE INTO scim_members (group_id, user_id) VALUES (?, ?)').run(groupId, u);
+};
+export const deleteScimGroup = (id: string) => { d.prepare('DELETE FROM scim_members WHERE group_id = ?').run(id); d.prepare('DELETE FROM scim_groups WHERE id = ?').run(id); };
+/** Names of the SCIM groups a user belongs to. */
+export const scimGroupsOf = (userId: number): string[] =>
+  (d.prepare('SELECT g.name FROM scim_groups g JOIN scim_members m ON m.group_id = g.id WHERE m.user_id = ?').all(userId) as any[]).map((r) => r.name);
+
+// ---- API tokens ---------------------------------------------------------------------------------------
+export interface TokenRow { id: number; userId: number; username: string; name: string; prefix: string; role: Role; createdAt: number; expiresAt: number; lastUsedAt: number | null; lastIp: string | null; revokedAt: number | null }
+const tokenOf = (r: any): TokenRow => ({
+  id: r.id, userId: r.user_id, username: r.username ?? '', name: r.name, prefix: r.prefix, role: r.role, createdAt: r.created_at, expiresAt: r.expires_at,
+  lastUsedAt: r.last_used_at, lastIp: r.last_ip, revokedAt: r.revoked_at,
+});
+export function insertToken(t: { userId: number; name: string; prefix: string; hash: string; role: Role; expiresAt: number }): number {
+  return Number(d.prepare('INSERT INTO api_tokens (user_id, name, prefix, token_hash, role, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(t.userId, t.name, t.prefix, t.hash, t.role, Date.now(), t.expiresAt).lastInsertRowid);
+}
+/** A token that is neither revoked nor expired, with its owner. */
+export function findToken(hash: string): (TokenRow & { user: UserRow }) | null {
+  const r = d.prepare('SELECT t.*, u.username AS username FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND t.revoked_at IS NULL AND t.expires_at > ?').get(hash, Date.now()) as any;
+  if (!r) return null;
+  const user = findUserById(r.user_id);
+  return user ? { ...tokenOf(r), user } : null;
+}
+export const touchToken = (id: number, ip: string) => { d.prepare('UPDATE api_tokens SET last_used_at = ?, last_ip = ? WHERE id = ?').run(Date.now(), ip, id); };
+export const listTokens = (userId?: number): TokenRow[] =>
+  (d.prepare(`SELECT t.*, u.username AS username FROM api_tokens t JOIN users u ON u.id = t.user_id ${userId ? 'WHERE t.user_id = ?' : ''} ORDER BY t.created_at DESC`).all(...(userId ? [userId] : [])) as any[]).map(tokenOf);
+export function revokeToken(id: number, userId?: number): boolean {
+  return Number(d.prepare(`UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL ${userId ? 'AND user_id = ?' : ''}`).run(...(userId ? [Date.now(), id, userId] : [Date.now(), id])).changes) > 0;
+}
+
+// ---- passkeys -----------------------------------------------------------------------------------------
+export interface PasskeyRow { id: number; userId: number; credentialId: string; publicKey: string; counter: number; transports: string[]; name: string; createdAt: number; lastUsedAt: number | null }
+const passkeyOf = (r: any): PasskeyRow => ({
+  id: r.id, userId: r.user_id, credentialId: r.credential_id, publicKey: r.public_key, counter: r.counter, transports: json<string[]>(r.transports) ?? [],
+  name: r.name, createdAt: r.created_at, lastUsedAt: r.last_used_at,
+});
+export const addPasskey = (p: { userId: number; credentialId: string; publicKey: string; counter: number; transports: string[]; name: string }) => {
+  d.prepare('INSERT INTO passkeys (user_id, credential_id, public_key, counter, transports, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(p.userId, p.credentialId, p.publicKey, p.counter, JSON.stringify(p.transports), p.name, Date.now());
+};
+export const listPasskeys = (userId: number): PasskeyRow[] => (d.prepare('SELECT * FROM passkeys WHERE user_id = ? ORDER BY created_at').all(userId) as any[]).map(passkeyOf);
+export const findPasskey = (credentialId: string): PasskeyRow | null => { const r = d.prepare('SELECT * FROM passkeys WHERE credential_id = ?').get(credentialId); return r ? passkeyOf(r) : null; };
+export const bumpPasskey = (id: number, counter: number) => { d.prepare('UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ?').run(counter, Date.now(), id); };
+export const deletePasskey = (id: number, userId: number): boolean => Number(d.prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?').run(id, userId).changes) > 0;
+export const saveChallenge = (id: string, userId: number | null, challenge: string, kind: 'register' | 'login', ttlMs: number) => {
+  d.prepare('INSERT INTO webauthn_challenges (id, user_id, challenge, kind, expires_at) VALUES (?, ?, ?, ?, ?)').run(id, userId, challenge, kind, Date.now() + ttlMs);
+};
+/** Single use: returns the stored challenge and deletes it. */
+export function takeChallenge(id: string, kind: 'register' | 'login'): { userId: number | null; challenge: string } | null {
+  const r = d.prepare('SELECT user_id, challenge FROM webauthn_challenges WHERE id = ? AND kind = ? AND expires_at > ?').get(id, kind, Date.now()) as any;
+  d.prepare('DELETE FROM webauthn_challenges WHERE id = ?').run(id);
+  return r ? { userId: r.user_id, challenge: r.challenge } : null;
+}
+
+// ---- approvals (four-eyes) ------------------------------------------------------------------------------
+export interface ApprovalRow {
+  id: string; action: string; summary: string; method: string; path: string; body: string | null; fingerprint: string; requestedBy: string; requestedById: number;
+  ip: string | null; createdAt: number; expiresAt: number; status: 'pending' | 'approved' | 'rejected' | 'used'; decidedBy: string | null; decidedAt: number | null; note: string | null;
+}
+const approvalOf = (r: any): ApprovalRow => ({
+  id: r.id, action: r.action, summary: r.summary, method: r.method, path: r.path, body: r.body, fingerprint: r.fingerprint, requestedBy: r.requested_by, requestedById: r.requested_by_id,
+  ip: r.ip, createdAt: r.created_at, expiresAt: r.expires_at, decidedBy: r.decided_by, decidedAt: r.decided_at, note: r.note,
+  status: r.consumed_at ? 'used' : r.status,
+});
+export function createApproval(a: Omit<ApprovalRow, 'status' | 'decidedBy' | 'decidedAt' | 'note' | 'createdAt'>): void {
+  d.prepare(`INSERT INTO approvals (id, action, summary, method, path, body, fingerprint, requested_by, requested_by_id, ip, created_at, expires_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`).run(a.id, a.action, a.summary, a.method, a.path, a.body, a.fingerprint, a.requestedBy, a.requestedById, a.ip, Date.now(), a.expiresAt);
+}
+export const getApproval = (id: string): ApprovalRow | null => { const r = d.prepare('SELECT * FROM approvals WHERE id = ?').get(id); return r ? approvalOf(r) : null; };
+export const listApprovals = (limit = 100): ApprovalRow[] => (d.prepare('SELECT * FROM approvals ORDER BY created_at DESC LIMIT ?').all(limit) as any[]).map(approvalOf);
+export const findOpenApproval = (fingerprint: string, userId: number): ApprovalRow | null => {
+  const r = d.prepare("SELECT * FROM approvals WHERE fingerprint = ? AND requested_by_id = ? AND status IN ('pending','approved') AND consumed_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1").get(fingerprint, userId, Date.now());
+  return r ? approvalOf(r) : null;
+};
+/** Approve or reject a pending, unexpired request. Returns false if it was no longer pending. */
+export function decideApproval(id: string, status: 'approved' | 'rejected', by: string, note: string | null): boolean {
+  return Number(d.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, note = ? WHERE id = ? AND status = 'pending' AND expires_at > ?").run(status, by, Date.now(), note, id, Date.now()).changes) > 0;
+}
+/** Atomically spends an approved request: exactly one caller can win. */
+export function consumeApproval(id: string): boolean {
+  return Number(d.prepare("UPDATE approvals SET consumed_at = ? WHERE id = ? AND status = 'approved' AND consumed_at IS NULL AND expires_at > ?").run(Date.now(), id, Date.now()).changes) > 0;
+}
+export const purgeApprovals = () => { d.prepare('DELETE FROM approvals WHERE created_at < ?').run(Date.now() - 90 * 86_400_000); };

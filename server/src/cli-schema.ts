@@ -72,6 +72,10 @@ const ROWS: Row[] = [
 
   R('data.sqlite_dirs', 'DATASOURCE_SQLITE_DIRS', list(',')), R('data.allowed_nets', 'DATASOURCE_ALLOWED_NETS', list(',')),
 
+  R('access.teams', 'ACCESS_TEAMS', json), R('access.group_roles', 'ACCESS_GROUP_ROLES', json), R('access.group_teams', 'ACCESS_GROUP_TEAMS', json),
+  R('access.approvals', 'ACCESS_APPROVALS', json), R('access.token_max_days', 'API_TOKEN_MAX_DAYS'), R('access.token_default_days', 'API_TOKEN_DEFAULT_DAYS'),
+  R('scim.token', 'SCIM_TOKEN'),
+  R('auth.passkeys.rp_id', 'WEBAUTHN_RP_ID'), R('auth.passkeys.origin', 'WEBAUTHN_ORIGIN'), R('auth.passkeys.rp_name', 'WEBAUTHN_RP_NAME'),
   R('nginx.manage', 'NGINX_MANAGE'), R('nginx.sites_dir', 'NGINX_SITES_DIR'), R('nginx.binary', 'NGINX_BIN'),
 ];
 
@@ -79,10 +83,12 @@ const DS_FIELDS: [string, string][] = [
   ['kind', 'KIND'], ['name', 'NAME'], ['host', 'HOST'], ['port', 'PORT'], ['database', 'DATABASE'], ['username', 'USERNAME'], ['password', 'PASSWORD'],
   ['uri', 'URI'], ['tls', 'TLS'], ['tls_insecure', 'TLS_INSECURE'], ['ca_file', 'CA_FILE'], ['file', 'FILE'], ['token', 'TOKEN'], ['readonly', 'READONLY'], ['color', 'COLOR'],
 ];
+/** Actions access.approvals.actions may name (the server's own list is checked against this in the tests). */
+export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot.delete', 'guest.stop', 'vm.clone', 'nginx.delete', 'nginx.change'];
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
-export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'env'];
+export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'env'];
 
 /**
  * Secrets the tool creates itself and then keeps (generated.env), so re-applying never rotates them.
@@ -160,6 +166,31 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
     }
   }
 
+  // Teams, group mapping, approvals, SCIM, passkeys
+  const acc = (y.access ?? {}) as Yaml;
+  const teams = (acc.teams && typeof acc.teams === 'object' ? acc.teams : {}) as Yaml;
+  for (const [name, t] of Object.entries(teams)) {
+    if (!/^[A-Za-z0-9._-]{1,40}$/.test(name)) problems.push(`access.teams.${name}: team names use letters, digits, . _ - (max 40)`);
+    const v = (t as Yaml)?.vmids, tg = (t as Yaml)?.tags;
+    if (!isSet(v) && !isSet(tg)) problems.push(`access.teams.${name}: needs vmids and/or tags, otherwise the team can reach nothing`);
+    for (const x of Array.isArray(v) ? v : isSet(v) ? [v] : []) if (!/^\d+(\s*-\s*\d+)?$/.test(String(x))) problems.push(`access.teams.${name}.vmids: "${x}" is not an id or a range like 100-120`);
+  }
+  for (const [g, list] of Object.entries((acc.group_teams ?? {}) as Yaml)) {
+    for (const t of Array.isArray(list) ? list : [list]) if (!(t in teams)) problems.push(`access.group_teams.${g}: unknown team "${t}"`);
+  }
+  for (const r of Object.keys((acc.group_roles ?? {}) as Yaml)) if (!['viewer', 'operator', 'admin'].includes(r)) problems.push(`access.group_roles.${r}: roles are viewer, operator, admin`);
+  const ap = (acc.approvals ?? {}) as Yaml;
+  for (const a of Array.isArray(ap.actions) ? ap.actions : []) if (a !== '*' && !APPROVAL_ACTIONS.includes(String(a))) problems.push(`access.approvals.actions: unknown action "${a}" (valid: * or ${APPROVAL_ACTIONS.join(', ')})`);
+  if (env.SCIM_TOKEN && env.SCIM_TOKEN.length < 24) problems.push('scim.token: use at least 24 characters (openssl rand -hex 24)');
+  if (env.WEBAUTHN_RP_ID || env.WEBAUTHN_ORIGIN) {
+    try {
+      const o = new URL(env.WEBAUTHN_ORIGIN ?? '');
+      if (o.protocol !== 'https:' && o.hostname !== 'localhost') problems.push('auth.passkeys.origin: must be https:// (passkeys do not work over plain http except on localhost)');
+      if (!env.WEBAUTHN_RP_ID) problems.push('auth.passkeys: rp_id is missing');
+      else if (o.hostname !== env.WEBAUTHN_RP_ID && !o.hostname.endsWith(`.${env.WEBAUTHN_RP_ID}`)) problems.push(`auth.passkeys: rp_id "${env.WEBAUTHN_RP_ID}" must be the origin's host or a parent domain of it`);
+    } catch { problems.push('auth.passkeys: both rp_id and origin (https://host) are required'); }
+  }
+
   // Required pairs
   const pair = (a: string, b: string, label: string) => {
     if (env[a] && !env[b]) problems.push(`${label}: ${a} is set but ${b} is missing`);
@@ -203,6 +234,10 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'webhook', label: 'Alerts: JSON webhook', on: has('WEBHOOK_URL'), hint: 'webhook.url' },
     { id: 'ai', label: 'Ask AI log helper', on: has('AI_BASE_URL', 'AI_MODEL'), hint: 'ai.base_url, model' },
     { id: 'sso', label: 'OIDC single sign-on', on: has('OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_REDIRECT_URI') && (has('OIDC_ALLOWED_USERS') || has('OIDC_REQUIRED_ROLE')), hint: 'auth.oidc.* incl. allowed_users or required_role' },
+    { id: 'teams', label: 'Teams (per-guest access)', on: !!env.ACCESS_TEAMS && env.ACCESS_TEAMS !== '{}', hint: 'access.teams' },
+    { id: 'approvals', label: 'Four-eyes approvals', on: !!env.ACCESS_APPROVALS && /"actions":\[[^\]]/.test(env.ACCESS_APPROVALS), hint: 'access.approvals.actions' },
+    { id: 'scim', label: 'SCIM provisioning', on: (env.SCIM_TOKEN ?? '').length >= 24, hint: 'scim.token' },
+    { id: 'passkeys', label: 'Passkeys (WebAuthn)', on: has('WEBAUTHN_RP_ID', 'WEBAUTHN_ORIGIN'), hint: 'auth.passkeys.rp_id, origin' },
     { id: 'mfa', label: 'Two-step sign-in (TOTP)', on: (env.MFA_KEY ?? '').length >= 32, hint: 'auth.mfa.enabled: true' },
     { id: 'metrics', label: 'Prometheus /metrics endpoint', on: has('METRICS_TOKEN'), hint: 'metrics.enabled (default true)' },
     { id: 'nginx', label: 'nginx site manager', on: env.NGINX_MANAGE === 'true', hint: 'nginx.manage: true' },

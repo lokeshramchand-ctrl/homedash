@@ -64,6 +64,40 @@ function envDatasources(): EnvDatasource[] {
   return out;
 }
 
+/** "100-120", 205 or "300" -> [lo, hi]; anything else is ignored. */
+function vmidRanges(v: unknown): [number, number][] {
+  const out: [number, number][] = [];
+  for (const x of Array.isArray(v) ? v : [v]) {
+    const m = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(String(x).trim());
+    if (!m) continue;
+    const lo = Number(m[1]), hi = Number(m[2] ?? m[1]);
+    if (lo > 0 && hi >= lo) out.push([lo, hi]);
+  }
+  return out;
+}
+function jsonEnv<T>(k: string, d: T): T {
+  const raw = env(k);
+  if (!raw) return d;
+  try { return JSON.parse(raw) as T; } catch { throw new Error(`${k} must be valid JSON`); }
+}
+function accessConfig() {
+  const teams: Record<string, { ranges: [number, number][]; tags: string[] }> = {};
+  for (const [name, t] of Object.entries(jsonEnv<Record<string, { vmids?: unknown; tags?: string[] }>>('ACCESS_TEAMS', {}))) {
+    teams[name] = { ranges: vmidRanges(t?.vmids ?? []), tags: (t?.tags ?? []).map(String) };
+  }
+  const groupRoles = jsonEnv<Record<string, string[]>>('ACCESS_GROUP_ROLES', {});
+  const gt = jsonEnv<Record<string, string[]>>('ACCESS_GROUP_TEAMS', {});
+  const ap = jsonEnv<{ actions?: string[]; ttl_minutes?: number; allow_self?: boolean }>('ACCESS_APPROVALS', {});
+  return {
+    teams, groupRoles: { viewer: groupRoles.viewer ?? [], operator: groupRoles.operator ?? [], admin: groupRoles.admin ?? [] } as Record<'viewer' | 'operator' | 'admin', string[]>,
+    groupTeams: gt,
+    approvals: { actions: (ap.actions ?? []).map(String), ttlMinutes: Math.min(Math.max(Number(ap.ttl_minutes ?? 30), 1), 1440), allowSelf: ap.allow_self === true },
+    scimToken: env('SCIM_TOKEN'),
+    tokenMaxDays: Number(env('API_TOKEN_MAX_DAYS', '365')), tokenDefaultDays: Number(env('API_TOKEN_DEFAULT_DAYS', '90')),
+    webauthn: { rpId: env('WEBAUTHN_RP_ID'), origin: trim(env('WEBAUTHN_ORIGIN')), rpName: env('WEBAUTHN_RP_NAME', 'homedash') },
+  };
+}
+
 export const cfg = {
   port: Number(env('PORT', '3000')),
   host: env('HOST', '127.0.0.1'),
@@ -211,6 +245,9 @@ export const cfg = {
   // Two-step sign-in (TOTP). MFA_KEY seals the secrets (32+ characters); MFA_REQUIRED forces enrolment before anything else is reachable.
   mfa: { key: env('MFA_KEY'), required: bool('MFA_REQUIRED', false), issuer: env('MFA_ISSUER', 'homedash') },
 
+  // Access control beyond roles: teams, group mapping, SCIM, approvals, API tokens, passkeys. See access.ts.
+  access: accessConfig(),
+
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)
 };
 
@@ -226,3 +263,5 @@ export const dataConfigured = () => cfg.datasourceKey.length >= 16;
 export const llamaConfigured = () => !!(cfg.llama.url || cfg.llama.agentUrl);
 export const gpuWatchConfigured = () => !!cfg.gpuWatch.agentUrl;
 export const mfaConfigured = () => cfg.mfa.key.length >= 32;
+export const scimConfigured = () => cfg.access.scimToken.length >= 24;
+export const passkeysConfigured = () => !!(cfg.access.webauthn.rpId && cfg.access.webauthn.origin);

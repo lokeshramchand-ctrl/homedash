@@ -115,3 +115,27 @@ test('toEnv: alert channels map to their variables and are validated', () => {
   assert.match(bad, /SMTP_HOST is set but SMTP_TO/);
   assert.match(bad, /neither key nor urls/);
 });
+
+test('toEnv: access settings (teams, group mapping, approvals, SCIM, passkeys) are mapped and validated', async () => {
+  const good = toEnv({
+    access: { teams: { web: { vmids: ['100-120', 205], tags: ['lab'] } }, group_roles: { admin: ['admins'] }, group_teams: { 'web-team': ['web'] }, approvals: { actions: ['host.shutdown', 'nginx.delete'], ttl_minutes: 15 } },
+    scim: { token: 'x'.repeat(30) }, auth: { passkeys: { rp_id: 'example.com', origin: 'https://dash.example.com' } },
+  }, {}, {});
+  assert.deepEqual(good.problems, []);
+  assert.equal(JSON.parse(good.env.ACCESS_TEAMS).web.vmids[0], '100-120');
+  assert.equal(good.env.WEBAUTHN_RP_ID, 'example.com');
+  const on = Object.fromEntries(featureRows(good.env).map((r) => [r.id, r.on]));
+  assert.deepEqual([on.teams, on.approvals, on.scim, on.passkeys], [true, true, true, true]);
+
+  const bad = toEnv({
+    access: { teams: { 'bad name!': { vmids: ['10-x'] }, empty: {} }, group_teams: { g: ['ghost'] }, group_roles: { boss: ['x'] }, approvals: { actions: ['launch.missiles'] } },
+    scim: { token: 'short' }, auth: { passkeys: { rp_id: 'other.org', origin: 'http://dash.example.com' } },
+  }, {}, {}).problems.join(' | ');
+  for (const re of [/team names use/, /not an id or a range/, /needs vmids and\/or tags/, /unknown team "ghost"/, /roles are viewer/, /unknown action "launch.missiles"/, /at least 24/, /must be https/, /must be the origin's host/]) assert.match(bad, re);
+});
+
+test('approval action names in the schema match the server rules', async () => {
+  const { APPROVAL_ACTIONS } = await import('../build/cli-schema.js');
+  const { ACTIONS } = await import('../build/approvals.js');
+  assert.deepEqual([...APPROVAL_ACTIONS].sort(), [...ACTIONS].sort());
+});

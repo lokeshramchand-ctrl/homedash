@@ -38,7 +38,7 @@ export function registerRateLimit(app: FastifyInstance) {
     const checks = [hit(`g|${req.ip}`, LIMITS.global, now)];
     if (route === '/api/events') checks.push(hit(`e|${req.ip}`, LIMITS.events, now));
     else checks.push(hit(`r|${req.method}|${route}|${req.ip}`, write ? LIMITS.write : LIMITS.read, now));
-    if (route === '/api/auth/login' || route === '/api/auth/mfa/verify') checks.push(hit(`l|${req.ip}`, LIMITS.login, now));
+    if (route === '/api/auth/login' || route === '/api/auth/mfa/verify' || route === '/api/auth/passkey/login/verify') checks.push(hit(`l|${req.ip}`, LIMITS.login, now));
     const tight = checks.reduce((a, c) => (c.max - c.b.n < a.max - a.b.n ? c : a));
     reply.header('X-RateLimit-Limit', tight.max);
     reply.header('X-RateLimit-Remaining', Math.max(0, tight.max - tight.b.n));

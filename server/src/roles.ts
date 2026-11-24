@@ -15,7 +15,7 @@ export const parseRole = (v: unknown, fallback: Role): Role => (isRole(v) ? v : 
 export const atLeast = (have: Role, need: Role) => RANK[have] >= RANK[need];
 
 // Areas that expose data from other systems, not just the state of this dashboard.
-const ADMIN_PREFIXES = ['/api/data', '/api/logs', '/api/loki', '/api/metrics'];
+const ADMIN_PREFIXES = ['/api/data', '/api/logs', '/api/loki', '/api/metrics', '/api/admin'];
 // Changing the reverse proxy or powering off the node is administration, not operation.
 const ADMIN_WRITE_PREFIXES = ['/api/nginx', '/api/host'];
 

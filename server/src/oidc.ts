@@ -1,5 +1,6 @@
 import { createHash, createPublicKey, randomBytes, verify } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { accessFromGroups } from './access.js';
 import { completeSignIn, createSession, mfaStateFor } from './auth.js';
 import { cfg, oidcConfigured } from './config.js';
 import { saveOidc, takeOidc, upsertSsoUser } from './db.js';
@@ -159,8 +160,12 @@ export function registerOidc(app: FastifyInstance) {
 
     const username = `sso:${display}`.toLowerCase().slice(0, 64);
     const names = [claims.preferred_username, claims.email].filter(Boolean).map((x) => String(x).toLowerCase());
-    const role = names.some((n) => kc.adminUsers.includes(n)) ? 'admin' : parseRole(kc.defaultRole, 'admin');
-    const user = upsertSsoUser(`${kc.issuer}|${claims.sub}`, username, role);
+    // Role and teams come from the provider's groups (access.group_roles / group_teams); admin_users always wins.
+    const groups = [...rolesOf(claims)];
+    const acc = accessFromGroups(groups, parseRole(kc.defaultRole, 'admin'), names.some((n) => kc.adminUsers.includes(n)));
+    const role = acc.role;
+    const user = upsertSsoUser(`${kc.issuer}|${claims.sub}`, username, role, { teams: acc.teams, groups });
+    if (user.disabled) return fail('ACCOUNT_DISABLED', display);
     const mfa = mfaStateFor(user, req.ip);
     await createSession(req, reply, user.id, user.username, { role, mfa });
     if (mfa !== 'pending') completeSignIn(req, user);

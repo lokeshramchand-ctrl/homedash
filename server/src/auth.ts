@@ -1,8 +1,12 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { cfg, mfaConfigured } from './config.js';
+import { inScope, liveAccess, scopedMayReach } from './access.js';
+import type { Scope } from './access.js';
+import { scopeOf } from './access.js';
+import { listGuests } from './guests.js';
 import {
-  attemptCount, bumpAttempts, clearAttempts, deleteSession, deleteSessionById, deleteUserSessions, findSession, findUser, insertSession, touchLogin, touchSession,
+  attemptCount, bumpAttempts, clearAttempts, deleteSession, deleteSessionById, deleteUserSessions, findSession, findToken, findUser, insertSession, touchLogin, touchSession, touchToken,
 } from './db.js';
 import type { MfaState, UserRow } from './db.js';
 import { HttpError } from './errors.js';
@@ -14,7 +18,7 @@ import { mfaGate } from './totp.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: number; username: string; role: Role; sid: number; sessionCreatedAt: number; mfa: MfaState };
+    user?: { id: number; username: string; role: Role; sid: number; sessionCreatedAt: number; mfa: MfaState; teams: string[]; scope: Scope | null; via: 'session' | 'token'; tokenId?: number };
   }
 }
 
@@ -26,6 +30,14 @@ const MAX_ATTEMPTS = 5;
 const MAX_ACCOUNT_ATTEMPTS = 30;
 const ATTEMPT_WINDOW_MS = 15 * 60_000;
 export const COOKIE = 'sid';
+/** API tokens look like hd_<12 hex>_<secret>; anything else in Authorization is ignored. */
+export const TOKEN_RE = /^hd_[0-9a-f]{12}_[A-Za-z0-9_-]{40,}$/;
+export const sha256Hex = (s: string) => createHash('sha256').update(s).digest('hex');
+const RANK: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 };
+const minRole = (a: Role, b: Role): Role => (RANK[a] <= RANK[b] ? a : b);
+// Paths that need no session. Passkey sign-in is public by nature; its verification is the credential check.
+const PUBLIC = ['/api/auth/login', '/api/auth/passkey/login/', '/api/auth/passkey/config'];
+const isPublic = (path: string) => PUBLIC.some((p) => path === p || (p.endsWith('/') && path.startsWith(p))) || path.startsWith('/api/auth/sso/');
 /** Value of the X-Requested-With header the web UI and the mobile app send on every request. */
 export const CLIENT_HEADER = 'homedash';
 
@@ -83,8 +95,32 @@ export async function createSession(
   });
 }
 
+/**
+ * Team-scoped users (access.teams) may only reach guests in their scope. They get no host-wide pages at all,
+ * because those expose other teams' guests: the allow-list in access.ts is deliberately short.
+ */
+async function enforceScope(req: FastifyRequest, path: string) {
+  const scope = req.user?.scope;
+  if (scope === null || scope === undefined) return;
+  if (!scopedMayReach(path)) throw new HttpError(403, 'OUT_OF_SCOPE', 'Your team has access to its own guests only');
+  const m = /^\/api\/guests\/(\d+)(?:\/|$)/.exec(path);
+  if (m) {
+    const g = (await listGuests()).find((x) => x.vmid === Number(m[1]));
+    if (!g || !inScope(scope, g)) throw new HttpError(403, 'OUT_OF_SCOPE', `Guest ${m[1]} is outside your team's scope`);
+  }
+}
+
 export function registerAuth(app: FastifyInstance) {
-  // Everything under /api needs a valid session except login. Also blocks cross-site state changes.
+  // The guest list itself is filtered, not refused.
+  app.addHook('preSerialization', async (req, _reply, payload) => {
+    const scope = req.user?.scope;
+    if (scope && req.method === 'GET' && Array.isArray(payload) && decodedPath(req.url) === '/api/guests') {
+      return (payload as { vmid: number; tags: string[] }[]).filter((g) => inScope(scope, g));
+    }
+    return payload;
+  });
+
+  // Everything under /api needs a valid session or API token except sign-in. Also blocks cross-site state changes.
   app.addHook('onRequest', async (req, reply) => {
     // Fastify decodes percent-escapes before routing ("/%61pi/x" reaches the /api/x handler), so the
     // guard must test the decoded path AND the route that actually matched, never the raw URL alone.
@@ -92,7 +128,12 @@ export function registerAuth(app: FastifyInstance) {
     const routed = req.routeOptions?.url ?? '';
     if (!path.startsWith('/api/') && !routed.startsWith('/api/')) return;
 
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
+    // A bearer token is not an ambient credential (browsers never add it on their own), so it needs no CSRF check.
+    const authz = String(req.headers.authorization ?? '');
+    const bearer = authz.startsWith('Bearer ') ? authz.slice(7).trim() : '';
+    const useToken = TOKEN_RE.test(bearer);
+
+    if (!useToken && req.method !== 'GET' && req.method !== 'HEAD') {
       const fetchSite = req.headers['sec-fetch-site'];
       if (fetchSite === 'cross-site') throw new HttpError(403, 'BAD_ORIGIN', 'Cross-site request refused');
       const origin = req.headers.origin;
@@ -108,7 +149,23 @@ export function registerAuth(app: FastifyInstance) {
       }
     }
 
-    if (path === '/api/auth/login' || path.startsWith('/api/auth/sso/')) return;
+    if (isPublic(path)) return;
+
+    const now = Date.now();
+    if (useToken) {
+      const tok = findToken(sha256(bearer));
+      if (!tok || tok.user.disabled) throw new HttpError(401, 'UNAUTHENTICATED', 'Invalid, expired or revoked API token');
+      if (now - (tok.lastUsedAt ?? 0) > 60_000) touchToken(tok.id, req.ip);
+      // Account actions (tokens, passkeys, two-step, sign-out-everywhere) need a real sign-in, never a token.
+      if (path.startsWith('/api/auth/') && path !== '/api/auth/me') throw new HttpError(403, 'TOKEN_FORBIDDEN', 'This needs a browser session, not an API token');
+      const acc = liveAccess(tok.userId, tok.role);
+      const role = minRole(acc.role, tok.role);
+      const need = neededRole(req.method, path, routed);
+      if (!atLeast(role, need)) throw new HttpError(403, 'FORBIDDEN', `This needs the ${need} role`);
+      req.user = { id: tok.userId, username: tok.user.username, role, sid: 0, sessionCreatedAt: tok.createdAt, mfa: 'ok', teams: acc.teams, scope: scopeOf(acc.teams), via: 'token', tokenId: tok.id };
+      await enforceScope(req, path);
+      return;
+    }
 
     const token = req.cookies[COOKIE];
     const session = token ? findSession(sha256(token)) : null;
@@ -117,7 +174,6 @@ export function registerAuth(app: FastifyInstance) {
       throw new HttpError(401, 'UNAUTHENTICATED', 'Login required');
     }
     // Idle timeout: last_seen_at is refreshed at most once a minute to keep writes cheap.
-    const now = Date.now();
     if (now - session.lastSeenAt > cfg.sessionIdleMinutes * 60_000) {
       deleteSessionById(session.id);
       reply.clearCookie(COOKIE, { path: '/' });
@@ -128,11 +184,17 @@ export function registerAuth(app: FastifyInstance) {
     const gate = [mfaGate(state, req.method, path), routed ? mfaGate(state, req.method, routed) : 'allow'].find((g) => g !== 'allow') ?? 'allow';
     if (gate === 'MFA_REQUIRED') throw new HttpError(401, 'MFA_REQUIRED', 'Enter your sign-in code');
     if (gate === 'MFA_ENROLL_REQUIRED') throw new HttpError(403, 'MFA_ENROLL_REQUIRED', 'Set up two-step sign-in first');
-    // Sessions created before roles existed have none and keep their old behaviour (admin).
-    const role = parseRole(session.role, 'admin');
+    // Role, teams and "deactivated" are read live, so a change at the identity provider applies on the next request.
+    const acc = liveAccess(session.userId, session.role);
+    if (acc.disabled) {
+      deleteSessionById(session.id);
+      reply.clearCookie(COOKIE, { path: '/' });
+      throw new HttpError(401, 'UNAUTHENTICATED', 'This account has been deactivated');
+    }
     const need = neededRole(req.method, path, routed);
-    if (!atLeast(role, need)) throw new HttpError(403, 'FORBIDDEN', `This needs the ${need} role`);
-    req.user = { id: session.userId, username: session.username, role, sid: session.id, sessionCreatedAt: session.createdAt, mfa: state };
+    if (!atLeast(acc.role, need)) throw new HttpError(403, 'FORBIDDEN', `This needs the ${need} role`);
+    req.user = { id: session.userId, username: session.username, role: acc.role, sid: session.id, sessionCreatedAt: session.createdAt, mfa: state, teams: acc.teams, scope: scopeOf(acc.teams), via: 'session' };
+    await enforceScope(req, path);
   });
 
   app.post<{ Body: { username?: string; password?: string } }>('/api/auth/login', async (req, reply) => {
@@ -164,6 +226,10 @@ export function registerAuth(app: FastifyInstance) {
       throw new HttpError(401, 'BAD_CREDENTIALS', 'Invalid username or password');
     }
 
+    if (user.disabled) {
+      bumpAttempts(key, ATTEMPT_WINDOW_MS);
+      throw new HttpError(401, 'BAD_CREDENTIALS', 'Invalid username or password');
+    }
     clearAttempts(key);
     const state = mfaStateFor(user, req.ip);
     await createSession(req, reply, user.id, user.username, { role: parseRole(user.role, 'admin'), mfa: state });
@@ -188,5 +254,5 @@ export function registerAuth(app: FastifyInstance) {
     return { ok: true, revoked };
   });
 
-  app.get('/api/auth/me', async (req) => ({ username: req.user!.username, role: req.user!.role, ...(req.user!.mfa === 'enroll' ? { mfa: 'enroll' } : {}) }));
+  app.get('/api/auth/me', async (req) => ({ username: req.user!.username, role: req.user!.role, teams: req.user!.teams, ...(req.user!.mfa === 'enroll' ? { mfa: 'enroll' } : {}) }));
 }
