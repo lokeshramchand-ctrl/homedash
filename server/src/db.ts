@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { currentCluster, multiCluster } from './clusters.js';
 import { cfg } from './config.js';
 
 // Embedded SQLite (node:sqlite, built into Node >= 22.13). One file, no service to run.
@@ -134,6 +135,9 @@ function migrate() {
   add('users', 'mfa', 'TEXT');
   add('users', 'mfa_setup', 'TEXT');
   add('users', 'mfa_exempt', 'INTEGER NOT NULL DEFAULT 0');
+  add('scenes', 'cluster', 'TEXT');
+  add('schedules', 'cluster', 'TEXT');
+  add('audit', 'cluster', 'TEXT');
   add('users', 'teams', 'TEXT');
   add('users', 'groups', 'TEXT');
   add('users', 'disabled', 'INTEGER NOT NULL DEFAULT 0');
@@ -288,8 +292,8 @@ export const clearAttempts = (key: string) => { d.prepare('DELETE FROM login_att
 
 // ---- audit log ---------------------------------------------------------------------------------
 export function insertAudit(a: AuditRow) {
-  d.prepare('INSERT INTO audit (ts, user, ip, vmid, name, action, result, task_id, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(a.ts, a.user, a.ip, a.vmid, a.name ?? null, a.action, a.result, a.taskId ?? null, a.reason ?? null);
+  d.prepare('INSERT INTO audit (ts, user, ip, vmid, name, action, result, task_id, reason, cluster) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(a.ts, a.user, a.ip, a.vmid, a.name ?? null, a.action, a.result, a.taskId ?? null, a.reason ?? null, multiCluster() ? currentCluster().id : null);
 }
 
 export const hasRecentAccepted = (vmid: number, sinceMs: number): boolean =>
@@ -369,17 +373,18 @@ export function takeOidc(id: string): { verifier: string; nonce: string } | null
 
 // ---- scenes and schedules ----------------------------------------------------------------------
 export interface SceneStep { vmid: number; action: 'start' | 'shutdown' | 'stop' | 'reboot'; waitSeconds: number; continueOnError: boolean }
-export interface SceneRow { id: number; name: string; steps: SceneStep[] }
+/** cluster null = the first cluster (rows from before several clusters were supported). */
+export interface SceneRow { id: number; name: string; steps: SceneStep[]; cluster: string | null }
 export interface ScheduleRow {
   id: number; name: string; sceneId: number | null; vmid: number | null; action: string | null;
-  days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null;
+  days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null; cluster: string | null;
 }
 
-const sceneOf = (r: any): SceneRow => ({ id: r.id, name: r.name, steps: JSON.parse(r.steps) });
+const sceneOf = (r: any): SceneRow => ({ id: r.id, name: r.name, steps: JSON.parse(r.steps), cluster: r.cluster ?? null });
 export const listScenes = (): SceneRow[] => (d.prepare('SELECT * FROM scenes ORDER BY name').all() as any[]).map(sceneOf);
 export const getScene = (id: number): SceneRow | null => { const r = d.prepare('SELECT * FROM scenes WHERE id = ?').get(id); return r ? sceneOf(r) : null; };
-export const saveScene = (id: number | null, name: string, steps: SceneStep[]): number => {
-  if (id === null) return Number(d.prepare('INSERT INTO scenes (name, steps, created_at) VALUES (?, ?, ?)').run(name, JSON.stringify(steps), Date.now()).lastInsertRowid);
+export const saveScene = (id: number | null, name: string, steps: SceneStep[], cluster: string | null = null): number => {
+  if (id === null) return Number(d.prepare('INSERT INTO scenes (name, steps, created_at, cluster) VALUES (?, ?, ?, ?)').run(name, JSON.stringify(steps), Date.now(), cluster).lastInsertRowid);
   d.prepare('UPDATE scenes SET name = ?, steps = ? WHERE id = ?').run(name, JSON.stringify(steps), id);
   return id;
 };
@@ -390,12 +395,12 @@ export const deleteScene = (id: number) => {
 
 const schedOf = (r: any): ScheduleRow => ({
   id: r.id, name: r.name, sceneId: r.scene_id, vmid: r.vmid, action: r.action, days: String(r.days).split(',').filter(Boolean).map(Number),
-  time: r.time, enabled: !!r.enabled, lastRun: r.last_run, lastResult: r.last_result,
+  time: r.time, enabled: !!r.enabled, lastRun: r.last_run, lastResult: r.last_result, cluster: r.cluster ?? null,
 });
 export const listSchedules = (): ScheduleRow[] => (d.prepare('SELECT * FROM schedules ORDER BY time, name').all() as any[]).map(schedOf);
-export const saveSchedule = (id: number | null, s: Omit<ScheduleRow, 'id' | 'lastRun' | 'lastResult'>): number => {
+export const saveSchedule = (id: number | null, s: Omit<ScheduleRow, 'id' | 'lastRun' | 'lastResult' | 'cluster'> & { cluster?: string | null }): number => {
   const args = [s.name, s.sceneId, s.vmid, s.action, s.days.join(','), s.time, s.enabled ? 1 : 0] as const;
-  if (id === null) return Number(d.prepare('INSERT INTO schedules (name, scene_id, vmid, action, days, time, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)').run(...args).lastInsertRowid);
+  if (id === null) return Number(d.prepare('INSERT INTO schedules (name, scene_id, vmid, action, days, time, enabled, cluster) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(...args, s.cluster ?? null).lastInsertRowid);
   d.prepare('UPDATE schedules SET name = ?, scene_id = ?, vmid = ?, action = ?, days = ?, time = ?, enabled = ? WHERE id = ?').run(...args, id);
   return id;
 };

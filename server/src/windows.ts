@@ -2,6 +2,7 @@
 // Read-only. Sources: the host journal, the Proxmox task log, the VM config, rrddata and the
 // guest agent's GET endpoints. The agent is optional; most Windows problems are visible from the host.
 import type { FastifyInstance } from 'fastify';
+import { nodePath } from './clusters.js';
 import { cfg } from './config.js';
 import { HttpError } from './errors.js';
 import { classify, parseSince, recurring } from './diagnostics.js';
@@ -17,7 +18,6 @@ export interface Finding { id: string; severity: Severity; title: string; detail
 interface Session { start: string; end: string | null; durationSec: number | null; cpuSec: number | null; memPeak: string | null; endedBy: string }
 type Cfg = Record<string, unknown>;
 
-const node = () => `/nodes/${encodeURIComponent(cfg.pveNode)}`;
 const str = (v: unknown) => (v == null ? '' : String(v));
 const SEV_ORDER: Record<Severity, number> = { critical: 0, warn: 1, info: 2, ok: 3 };
 
@@ -226,9 +226,9 @@ export function summarise(rows: Record<string, number | null>[]) {
 }
 
 // ---------- guest agent (all GET; every call may fail) ----------
-async function agentProbe(vmid: number, status: string) {
+async function agentProbe(vmid: number, status: string, nodeName: string) {
   if (status !== 'running') return { state: 'vm-stopped' as const, error: null, os: null, hostname: null, timezone: null, timeSkewSec: null, disks: [], nics: [], users: [] };
-  const base = `${node()}/qemu/${vmid}/agent`;
+  const base = `${nodePath(nodeName)}/qemu/${vmid}/agent`;
   const os = await pve<any>('GET', `${base}/get-osinfo`).then((r) => r?.result ?? r).catch((e: Error) => e);
   if (os instanceof Error) {
     if (/Permission check failed/i.test(os.message)) {
@@ -268,14 +268,14 @@ export async function windowsReport(vmid: number, since: string) {
   if (g.type !== 'qemu') throw new HttpError(400, 'UNSUPPORTED', 'Windows diagnostics are only available for virtual machines');
 
   const [config, cur, tasks, raw, rrd] = await Promise.all([
-    pve<Cfg>('GET', `${node()}/qemu/${vmid}/config`),
-    pve<any>('GET', `${node()}/qemu/${vmid}/status/current`),
+    pve<Cfg>('GET', `${nodePath(g.node)}/qemu/${vmid}/config`),
+    pve<any>('GET', `${nodePath(g.node)}/qemu/${vmid}/status/current`),
     listTasks({ vmid, limit: 500 }).catch(() => []),
     // Same scope as the per-guest log tab, plus the scope start/stop/CPU-time lines that give run history.
     journal(['--since', since, '-g', `\\b(VM|CT|vm|ct) ${vmid}\\b|\\b${vmid}\\.scope|qemu-server@${vmid}\\b|:(qmstart|qmstop|qmshutdown|qmreboot|qmreset|qmsuspend|qmresume):${vmid}:|\\bvmid[= ]${vmid}\\b`, '-n', '4000', '-r']).catch(() => []),
-    pve<any[]>('GET', `${node()}/qemu/${vmid}/rrddata?timeframe=${timeframeFor(since)}&cf=AVERAGE`).catch(() => []),
+    pve<any[]>('GET', `${nodePath(g.node)}/qemu/${vmid}/rrddata?timeframe=${timeframeFor(since)}&cf=AVERAGE`).catch(() => []),
   ]);
-  const agent = await agentProbe(vmid, g.status);
+  const agent = await agentProbe(vmid, g.status, g.node);
 
   // vfio-pci lines are host-wide and very chatty, so they get their own query scoped to this VM's PCI functions.
   const assigned = Object.entries(config).filter(([k]) => /^hostpci\d+$/.test(k))

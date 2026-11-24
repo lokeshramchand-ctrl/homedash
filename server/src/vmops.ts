@@ -2,13 +2,14 @@
 // (OS, IPs, volumes), config edits (CPU, RAM, autostart, agent), ISO mount/eject, NIC link
 // toggle and clone. Every write is validated strictly, audited, and refuses protected guests.
 import type { FastifyInstance } from 'fastify';
+import { hostPath } from './clusters.js';
 import { cfg } from './config.js';
 import { HttpError } from './errors.js';
 import { findGuest, guestPath, invalidateGuests } from './guests.js';
 import { pve } from './proxmox.js';
 import { guard, parseKv, run } from './qemu.js';
 
-const node = () => `/nodes/${encodeURIComponent(cfg.pveNode)}`;
+const node = () => hostPath();
 const ISO_VOLID = /^[A-Za-z0-9][\w.-]*:iso\/[\w .+()-]{1,120}\.iso$/i;
 const CD_SLOT = /^(ide[0-3]|sata[0-5]|scsi\d{1,2})$/;
 const NET_SLOT = /^net\d{1,2}$/;

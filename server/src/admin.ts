@@ -68,7 +68,7 @@ export function registerAdmin(app: FastifyInstance) {
 
   // Read-only view of what homedash.yaml defines, so admins can see why a person has the access they have.
   app.get('/api/admin/access', async () => ({
-    teams: Object.entries(cfg.access.teams).map(([name, t]) => ({ name, vmids: t.ranges.map(([a, b]) => (a === b ? String(a) : `${a}-${b}`)), tags: t.tags })),
+    teams: Object.entries(cfg.access.teams).map(([name, t]) => ({ name, cluster: t.cluster ?? null, vmids: t.ranges.map(([a, b]) => (a === b ? String(a) : `${a}-${b}`)), tags: t.tags })),
     groupRoles: cfg.access.groupRoles, groupTeams: cfg.access.groupTeams,
     oidc: { configured: !!cfg.oidc.issuer, defaultRole: cfg.oidc.defaultRole, adminUsers: cfg.oidc.adminUsers.length },
     scim: { enabled: scimConfigured(), endpoint: '/scim/v2', groups: listScimGroups().map((g) => ({ name: g.name, members: g.members.length })) },

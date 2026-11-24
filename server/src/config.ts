@@ -81,9 +81,9 @@ function jsonEnv<T>(k: string, d: T): T {
   try { return JSON.parse(raw) as T; } catch { throw new Error(`${k} must be valid JSON`); }
 }
 function accessConfig() {
-  const teams: Record<string, { ranges: [number, number][]; tags: string[] }> = {};
-  for (const [name, t] of Object.entries(jsonEnv<Record<string, { vmids?: unknown; tags?: string[] }>>('ACCESS_TEAMS', {}))) {
-    teams[name] = { ranges: vmidRanges(t?.vmids ?? []), tags: (t?.tags ?? []).map(String) };
+  const teams: Record<string, { ranges: [number, number][]; tags: string[]; cluster?: string }> = {};
+  for (const [name, t] of Object.entries(jsonEnv<Record<string, { vmids?: unknown; tags?: string[]; cluster?: string }>>('ACCESS_TEAMS', {}))) {
+    teams[name] = { ranges: vmidRanges(t?.vmids ?? []), tags: (t?.tags ?? []).map(String), ...(t?.cluster ? { cluster: String(t.cluster) } : {}) };
   }
   const groupRoles = jsonEnv<Record<string, string[]>>('ACCESS_GROUP_ROLES', {});
   const gt = jsonEnv<Record<string, string[]>>('ACCESS_GROUP_TEAMS', {});
@@ -98,6 +98,51 @@ function accessConfig() {
   };
 }
 
+/** One Proxmox cluster, or one stand-alone node. */
+export interface ClusterCfg {
+  id: string; name: string;
+  urls: string[]; // API addresses of cluster members, tried in order (failover)
+  node: string; // preferred node for host-level pages
+  tokenId: string; tokenSecret: string; insecureTls: boolean;
+  allowedVmids: Set<number>; protectedVmids: Set<number>; featuredVmid: number; conflicts: Record<number, number[]>;
+  hostPower: boolean;
+}
+
+const numList = (v: unknown): number[] => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[\s,]+/) : []).map((x) => parseInt(String(x), 10)).filter((n) => Number.isInteger(n) && n > 0);
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+
+function clusterConfigs(): ClusterCfg[] {
+  const raw = env('PVE_CLUSTERS');
+  const list: Record<string, unknown>[] = [];
+  if (raw) {
+    try { list.push(...(JSON.parse(raw) as Record<string, unknown>[])); } catch { throw new Error('PVE_CLUSTERS must be a JSON array'); }
+  } else if (env('PVE_URL')) {
+    // The single-cluster settings that were always here: one cluster called "default".
+    list.push({
+      id: 'default', name: env('PVE_CLUSTER_NAME', 'Proxmox'), urls: env('PVE_URL').split(/[\s,]+/), node: env('PVE_NODE'), token_id: env('PVE_TOKEN_ID'),
+      token_secret: env('PVE_TOKEN_SECRET'), insecure_tls: bool('PVE_INSECURE_TLS', false), allowed_vmids: ids('ALLOWED_VMIDS'), protected_vmids: ids('PROTECTED_VMIDS'),
+      featured_vmid: Number(env('FEATURED_VMID', '0')) || 0, conflicts: conflicts(), host_power: bool('HOST_POWER_ENABLED', false),
+    });
+  }
+  const seen = new Set<string>();
+  return list.map((c, i) => {
+    const name = String(c.name ?? c.id ?? `cluster-${i + 1}`).trim().slice(0, 40) || `cluster-${i + 1}`;
+    let id = slug(String(c.id ?? name)) || `cluster-${i + 1}`;
+    if (seen.has(id)) id = `${id}-${i + 1}`;
+    seen.add(id);
+    const urls = (Array.isArray(c.urls) ? c.urls : String(c.urls ?? c.url ?? '').split(/[\s,]+/)).map((u) => trim(String(u))).filter(Boolean);
+    const cf = (c.conflicts ?? {}) as Record<string, unknown>;
+    return {
+      id, name, urls, node: String(c.node ?? '').trim(), tokenId: String(c.token_id ?? '').trim(), tokenSecret: String(c.token_secret ?? '').trim(),
+      insecureTls: c.insecure_tls === true || c.insecure_tls === 'true',
+      allowedVmids: new Set(numList(c.allowed_vmids)), protectedVmids: new Set(numList(c.protected_vmids)), featuredVmid: Number(c.featured_vmid ?? 0) || 0,
+      conflicts: Object.fromEntries(Object.entries(cf).map(([k, v]) => [Number(k), numList(v)])),
+      hostPower: c.host_power === true || c.host_power === 'true',
+    };
+  });
+}
+const CL = clusterConfigs();
+
 export const cfg = {
   port: Number(env('PORT', '3000')),
   host: env('HOST', '127.0.0.1'),
@@ -111,16 +156,18 @@ export const cfg = {
   sessionIdleMinutes: Number(env('SESSION_IDLE_MINUTES', '120')),
   cookieSecure: bool('COOKIE_SECURE', true),
 
-  pveUrl: trim(env('PVE_URL')),
-  pveNode: env('PVE_NODE'),
-  pveTokenId: env('PVE_TOKEN_ID'), // user@realm!tokenname
-  pveTokenSecret: env('PVE_TOKEN_SECRET'),
-  pveInsecureTls: bool('PVE_INSECURE_TLS', false),
-  allowedVmids: new Set(ids('ALLOWED_VMIDS')), // empty = every guest on the node
-  protectedVmids: new Set(ids('PROTECTED_VMIDS')),
-  featuredVmid: Number(env('FEATURED_VMID', '0')) || 0, // optional guest shown as a large card on the Guests page
-  conflicts: conflicts(),
-  hostPowerEnabled: bool('HOST_POWER_ENABLED', false), // allow POST /api/host/shutdown (powers off the whole Proxmox node)
+  // Proxmox clusters / nodes (see clusters.ts). The fields below mirror the first cluster for code that has no request context.
+  clusters: CL,
+  pveUrl: CL[0]?.urls[0] ?? '',
+  pveNode: CL[0]?.node ?? '',
+  pveTokenId: CL[0]?.tokenId ?? '', // user@realm!tokenname
+  pveTokenSecret: CL[0]?.tokenSecret ?? '',
+  pveInsecureTls: CL[0]?.insecureTls ?? false,
+  allowedVmids: CL[0]?.allowedVmids ?? new Set<number>(), // empty = every guest
+  protectedVmids: CL[0]?.protectedVmids ?? new Set<number>(),
+  featuredVmid: CL[0]?.featuredVmid ?? 0, // optional guest shown as a large card on the Guests page
+  conflicts: CL[0]?.conflicts ?? {},
+  hostPowerEnabled: CL.some((c) => c.hostPower), // allow POST /api/host/shutdown (powers off a whole Proxmox node)
 
   nginxDir: env('NGINX_SITES_DIR', '/etc/nginx/sites-enabled'),
   nginxManage: bool('NGINX_MANAGE', false), // allow creating/editing/deleting sites from the UI (needs nginx in this container)
@@ -254,7 +301,8 @@ export const cfg = {
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)
 };
 
-export const pveConfigured = () => !!(cfg.pveUrl && cfg.pveNode && cfg.pveTokenId && cfg.pveTokenSecret);
+export const clusterReady = (c: ClusterCfg) => !!(c.urls.length && c.node && c.tokenId && c.tokenSecret);
+export const pveConfigured = () => cfg.clusters.length > 0 && cfg.clusters.every(clusterReady);
 export const grafanaConfigured = () => !!(cfg.grafanaUrl && cfg.grafanaToken);
 export const oidcConfigured = () => !!(cfg.oidc.issuer && cfg.oidc.clientId && cfg.oidc.redirectUri);
 export const kumaConfigured = () => !!(cfg.kumaUrl && cfg.kumaApiKey);

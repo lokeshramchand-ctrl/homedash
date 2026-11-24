@@ -6,7 +6,8 @@ import { HttpError } from './errors.js';
 import { performGuestAction } from './guests.js';
 import type { Action } from './guests.js';
 import { pve } from './proxmox.js';
-import { cfg, pveConfigured } from './config.js';
+import { currentCluster, defaultCluster, findCluster, inCluster, nodeOfTask, nodePath } from './clusters.js';
+import { pveConfigured } from './config.js';
 
 // A scene is an ordered list of power steps ("stop the media server, wait, start the gaming VM").
 // Schedules run a scene, or one guest action, at a weekday/time in the server's time zone.
@@ -26,7 +27,7 @@ export function validateSteps(raw: unknown): SceneStep[] {
   });
 }
 
-export function validateSchedule(b: any): Omit<ScheduleRow, 'id' | 'lastRun' | 'lastResult'> {
+export function validateSchedule(b: any): Omit<ScheduleRow, 'id' | 'lastRun' | 'lastResult' | 'cluster'> {
   const name = String(b?.name ?? '').trim();
   if (!name || name.length > 60) throw bad('Name is required (max 60 characters)');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b?.time ?? ''))) throw bad('Time must be HH:MM (24 hour)');
@@ -51,28 +52,30 @@ export function isDue(s: Pick<ScheduleRow, 'days' | 'time' | 'enabled' | 'lastRu
 }
 
 interface RunStep { vmid: number; action: string; status: 'pending' | 'running' | 'ok' | 'error' | 'skipped'; message: string }
-export interface Run { id: string; scene: string; by: string; startedAt: string; finishedAt: string | null; status: 'running' | 'ok' | 'error'; steps: RunStep[] }
+export interface Run { id: string; cluster: string; scene: string; by: string; startedAt: string; finishedAt: string | null; status: 'running' | 'ok' | 'error'; steps: RunStep[] }
 const runs: Run[] = [];
 
 async function waitForTask(taskId: string, timeoutMs = 300_000): Promise<string | null> {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    const t = await pve<{ status: string; exitstatus?: string }>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/tasks/${encodeURIComponent(taskId)}/status`);
+    const t = await pve<{ status: string; exitstatus?: string }>('GET', `${nodePath(nodeOfTask(taskId) ?? currentCluster().node)}/tasks/${encodeURIComponent(taskId)}/status`);
     if (t.status !== 'running') return t.exitstatus === 'OK' ? null : (t.exitstatus ?? 'task failed');
     await sleep(2000);
   }
   return 'timed out waiting for the task';
 }
 
-export function runScene(name: string, steps: SceneStep[], by: string, ip: string): Run {
+export function runScene(name: string, steps: SceneStep[], by: string, ip: string, clusterId: string | null = null): Run {
+  const cluster = findCluster(clusterId) ?? defaultCluster();
   const run: Run = {
-    id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, scene: name, by, startedAt: new Date().toISOString(), finishedAt: null,
+    id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, cluster: cluster.id, scene: name, by, startedAt: new Date().toISOString(), finishedAt: null,
     status: 'running', steps: steps.map((s) => ({ vmid: s.vmid, action: s.action, status: 'pending', message: '' })),
   };
   runs.unshift(run);
   if (runs.length > 20) runs.pop();
   logEvent('info', 'app', `Scene "${name}" started by ${by}`);
-  void (async () => {
+  // The steps run against the scene's own cluster, whoever or whatever started it.
+  void inCluster(cluster, async () => {
     let failed = false;
     for (let i = 0; i < steps.length; i++) {
       const st = steps[i], rs = run.steps[i];
@@ -92,7 +95,7 @@ export function runScene(name: string, steps: SceneStep[], by: string, ip: strin
     run.status = run.steps.some((s) => s.status === 'error') ? 'error' : 'ok';
     run.finishedAt = new Date().toISOString();
     logEvent(run.status === 'ok' ? 'info' : 'warn', 'app', `Scene "${name}" ${run.status === 'ok' ? 'finished' : 'finished with errors'}`);
-  })();
+  });
   return run;
 }
 
@@ -108,11 +111,11 @@ export function startScheduler() {
       if (s.sceneId !== null) {
         const scene = getScene(s.sceneId);
         if (!scene) { markScheduleRun(s.id, 'scene no longer exists'); continue; }
-        runScene(scene.name, scene.steps, by, 'schedule');
+        runScene(scene.name, scene.steps, by, 'schedule', scene.cluster);
         markScheduleRun(s.id, `started scene ${scene.name}`);
       } else if (s.vmid !== null && s.action) {
         markScheduleRun(s.id, 'started');
-        performGuestAction(s.vmid, s.action as Action, by, 'schedule')
+        inCluster(findCluster(s.cluster) ?? defaultCluster(), () => performGuestAction(s.vmid!, s.action as Action, by, 'schedule'))
           .then(() => { markScheduleRun(s.id, `${s.action} accepted`); logEvent('info', 'guest', `Schedule "${s.name}": ${s.action} guest ${s.vmid}`); })
           .catch((e) => { markScheduleRun(s.id, `failed: ${(e as Error).message}`); logEvent('warn', 'guest', `Schedule "${s.name}" failed: ${(e as Error).message}`); });
       }
@@ -125,24 +128,25 @@ export function registerScenes(app: FastifyInstance) {
   const nameOf = (b: any) => { const n = String(b?.name ?? '').trim(); if (!n || n.length > 60) throw bad('Name is required (max 60 characters)'); return n; };
   const unique = (fn: () => number) => { try { return fn(); } catch (e) { if (/UNIQUE/.test((e as Error).message)) throw new HttpError(409, 'EXISTS', 'A scene with that name already exists'); throw e; } };
 
-  app.get('/api/scenes', async () => listScenes());
-  app.post<{ Body: { name?: string; steps?: unknown } }>('/api/scenes', async (req) => ({ id: unique(() => saveScene(null, nameOf(req.body), validateSteps(req.body?.steps))) }));
+  const mine = (cluster: string | null) => (cluster ?? defaultCluster().id) === currentCluster().id;
+  app.get('/api/scenes', async () => listScenes().filter((s) => mine(s.cluster)));
+  app.post<{ Body: { name?: string; steps?: unknown } }>('/api/scenes', async (req) => ({ id: unique(() => saveScene(null, nameOf(req.body), validateSteps(req.body?.steps), currentCluster().id)) }));
   app.put<{ Params: { id: string }; Body: { name?: string; steps?: unknown } }>('/api/scenes/:id', async (req) => {
     const sid = id(req.params.id);
     if (!getScene(sid)) throw new HttpError(404, 'NOT_FOUND', 'Scene not found');
-    return { id: unique(() => saveScene(sid, nameOf(req.body), validateSteps(req.body?.steps))) };
+    return { id: unique(() => saveScene(sid, nameOf(req.body), validateSteps(req.body?.steps), getScene(sid)!.cluster)) };
   });
   app.delete<{ Params: { id: string } }>('/api/scenes/:id', async (req) => { deleteScene(id(req.params.id)); return { ok: true }; });
   app.post<{ Params: { id: string } }>('/api/scenes/:id/run', async (req) => {
     if (!pveConfigured()) throw new HttpError(503, 'NOT_CONFIGURED', 'Proxmox is not configured on the server');
     const scene = getScene(id(req.params.id));
     if (!scene) throw new HttpError(404, 'NOT_FOUND', 'Scene not found');
-    return runScene(scene.name, scene.steps, req.user!.username, req.ip);
+    return runScene(scene.name, scene.steps, req.user!.username, req.ip, scene.cluster);
   });
-  app.get('/api/scenes/runs', async () => runs);
+  app.get('/api/scenes/runs', async () => runs.filter((r) => r.cluster === currentCluster().id));
 
-  app.get('/api/schedules', async () => listSchedules());
-  app.post<{ Body: unknown }>('/api/schedules', async (req) => ({ id: saveSchedule(null, validateSchedule(req.body)) }));
+  app.get('/api/schedules', async () => listSchedules().filter((s) => mine(s.cluster)));
+  app.post<{ Body: unknown }>('/api/schedules', async (req) => ({ id: saveSchedule(null, { ...validateSchedule(req.body), cluster: currentCluster().id }) }));
   app.put<{ Params: { id: string }; Body: unknown }>('/api/schedules/:id', async (req) => ({ id: saveSchedule(id(req.params.id), validateSchedule(req.body)) }));
   app.delete<{ Params: { id: string } }>('/api/schedules/:id', async (req) => { deleteSchedule(id(req.params.id)); return { ok: true }; });
 }

@@ -4,6 +4,7 @@ import { readdir, readFile, readlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { cfg } from './config.js';
+import { hostPath } from './clusters.js';
 import { HttpError } from './errors.js';
 import { journal } from './events.js';
 import { listGuests } from './guests.js';
@@ -54,7 +55,7 @@ export function parseSince(v: unknown, def = '7d'): string {
   return `-${n}${m[2]}`;
 }
 
-const node = () => `/nodes/${encodeURIComponent(cfg.pveNode)}`;
+const node = () => hostPath();
 const PCI = /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}(\.[0-7])?$/i;
 /** hostpci values name a slot ("0000:01:00") or a function ("0000:01:00.0"); a short "01:00" means domain 0000. */
 function hostpciAddrs(config: Record<string, unknown>): string[] {

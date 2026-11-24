@@ -8,6 +8,7 @@
 // Nothing is executed on behalf of the approver, so the audit trail always names the person who asked.
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { currentCluster, currentNode } from './clusters.js';
 import { cfg } from './config.js';
 import { consumeApproval, createApproval, decideApproval, findOpenApproval, getApproval, listApprovals } from './db.js';
 import type { ApprovalRow } from './db.js';
@@ -23,6 +24,7 @@ export const RULES: Rule[] = [
   { action: 'snapshot.rollback', method: 'POST', route: '/api/guests/:vmid/snapshots/:name/rollback', summary: (p) => `Roll guest ${p.vmid} back to snapshot "${p.name}" (loses everything since)` },
   { action: 'snapshot.delete', method: 'DELETE', route: '/api/guests/:vmid/snapshots/:name', summary: (p) => `Delete snapshot "${p.name}" of guest ${p.vmid}` },
   { action: 'guest.stop', method: 'POST', route: '/api/guests/:vmid/:action', when: (r) => ['stop', 'reset'].includes((r.params as { action?: string }).action ?? ''), summary: (p) => `Force ${p.action} guest ${p.vmid} (no clean shutdown)` },
+  { action: 'guest.migrate', method: 'POST', route: '/api/guests/:vmid/migrate', summary: (p) => `Migrate guest ${p.vmid} to another node` },
   { action: 'vm.clone', method: 'POST', route: '/api/guests/:vmid/vm/clone', summary: (p) => `Clone VM ${p.vmid}` },
   { action: 'nginx.delete', method: 'DELETE', route: '/api/nginx/sites/:file', summary: (p) => `Delete the nginx site ${p.file}` },
   { action: 'nginx.change', method: 'POST', route: '/api/nginx/sites', summary: () => 'Create an nginx site' },
@@ -33,7 +35,7 @@ export const ACTIONS = [...new Set(RULES.map((r) => r.action))];
 
 const required = (action: string) => cfg.access.approvals.actions.includes('*') || cfg.access.approvals.actions.includes(action);
 const fingerprint = (method: string, path: string, body: unknown) =>
-  createHash('sha256').update(`${method}\n${path}\n${JSON.stringify(body ?? null)}`).digest('hex');
+  createHash('sha256').update(`${currentCluster().id}\n${currentNode()}\n${method}\n${path}\n${JSON.stringify(body ?? null)}`).digest('hex');
 
 const view = (a: ApprovalRow) => ({
   id: a.id, action: a.action, summary: a.summary, method: a.method, path: a.path, body: a.body ? JSON.parse(a.body) : null, requestedBy: a.requestedBy,

@@ -23,6 +23,7 @@ before(async () => {
   pve = createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json');
     if (req.method === 'POST') posted.push(req.url);
+    if (req.url.includes('/cluster/resources') && req.url.includes('type=vm')) return res.end(JSON.stringify({ data: GUESTS.map((g) => ({ vmid: g.vmid, name: g.name, status: g.status, tags: g.tags, type: g.type, node: 'pve', maxmem: 1, mem: 0, cpu: 0, uptime: 0, maxcpu: 1 })) }));
     if (req.url.endsWith('/lxc')) return res.end(JSON.stringify({ data: GUESTS.map((g) => ({ vmid: g.vmid, name: g.name, status: g.status, tags: g.tags, maxmem: 1, mem: 0, cpu: 0, uptime: 0, maxcpu: 1 })) }));
     if (req.url.endsWith('/qemu')) return res.end(JSON.stringify({ data: [] }));
     res.end(JSON.stringify({ data: 'UPID:pve:00000001:test' }));
@@ -226,7 +227,7 @@ test('group mapping: role from groups, admin_users always wins, unmapped users g
   assert.equal(inScope(s, { vmid: 121, tags: [] }), false);
   assert.equal(inScope(s, { vmid: 400, tags: ['LAB'] }), true);
   assert.equal(inScope(null, { vmid: 1, tags: [] }), true);
-  assert.equal(scopeOf(['unknown-team']).vmids.size, 0); // an unknown team grants nothing, it does not unscope the user
+  assert.equal(scopeOf(['unknown-team']).rules.length, 0); // an unknown team grants nothing, it does not unscope the user
 });
 
 test('passkeys: config is public, sign-in options are issued, a forged response is refused', async () => {

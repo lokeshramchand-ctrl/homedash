@@ -34,7 +34,7 @@ const ROWS: Row[] = [
   R('server.serve_dist', 'SERVE_DIST'), R('server.database', 'DB_PATH'), R('server.frame_src', 'FRAME_SRC', list(' ')),
   R('server.log_retention_days', 'EVENT_RETENTION_DAYS'), R('server.host_journal', 'JOURNAL_ENABLED'),
 
-  R('proxmox.url', 'PVE_URL'), R('proxmox.node', 'PVE_NODE'), R('proxmox.token_id', 'PVE_TOKEN_ID'), R('proxmox.token_secret', 'PVE_TOKEN_SECRET'),
+  R('proxmox.url', 'PVE_URL', list(' ')), R('proxmox.cluster_name', 'PVE_CLUSTER_NAME'), R('proxmox.node', 'PVE_NODE'), R('proxmox.token_id', 'PVE_TOKEN_ID'), R('proxmox.token_secret', 'PVE_TOKEN_SECRET'),
   R('proxmox.insecure_tls', 'PVE_INSECURE_TLS'), R('proxmox.allowed_vmids', 'ALLOWED_VMIDS', list(',')), R('proxmox.protected_vmids', 'PROTECTED_VMIDS', list(',')),
   R('proxmox.featured_vmid', 'FEATURED_VMID'), R('proxmox.conflicts', 'GUEST_CONFLICTS', json), R('proxmox.allow_host_power', 'HOST_POWER_ENABLED'),
   R('proxmox.backup_max_age_days', 'BACKUP_MAX_AGE_DAYS'), R('proxmox.snapshot_max_age_days', 'SNAPSHOT_MAX_AGE_DAYS'), R('proxmox.memory_reserve_mb', 'MEMORY_RESERVE_MB'),
@@ -85,7 +85,7 @@ const DS_FIELDS: [string, string][] = [
   ['uri', 'URI'], ['tls', 'TLS'], ['tls_insecure', 'TLS_INSECURE'], ['ca_file', 'CA_FILE'], ['file', 'FILE'], ['token', 'TOKEN'], ['readonly', 'READONLY'], ['color', 'COLOR'],
 ];
 /** Actions access.approvals.actions may name (the server's own list is checked against this in the tests). */
-export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot.delete', 'guest.stop', 'vm.clone', 'nginx.delete', 'nginx.change'];
+export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot.delete', 'guest.stop', 'guest.migrate', 'vm.clone', 'nginx.delete', 'nginx.change'];
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
@@ -167,13 +167,40 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
     }
   }
 
+  // Several clusters or stand-alone nodes: proxmox.clusters is a list; the single-cluster keys are for one.
+  const clusters = y.proxmox?.clusters;
+  if (Array.isArray(clusters) && clusters.length) {
+    if (isSet(y.proxmox?.url) || isSet(y.proxmox?.node) || isSet(y.proxmox?.token_id)) problems.push('proxmox: use either url/node/token_id/token_secret for one cluster, or clusters: [...] for several, not both');
+    const ids = new Set<string>();
+    const out = clusters.map((c: Yaml, i: number) => {
+      const where = `proxmox.clusters[${i}]`;
+      const id = String(c?.id ?? c?.name ?? `cluster-${i + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      if (ids.has(id)) problems.push(`${where}: duplicate cluster id "${id}"`);
+      ids.add(id);
+      const urls = (Array.isArray(c?.urls) ? c.urls : isSet(c?.url) ? String(c.url).split(/[\s,]+/) : []).map(String).filter(Boolean);
+      if (!urls.length) problems.push(`${where}: url (or urls: [...] for failover between cluster members) is required`);
+      for (const u of urls) if (!/^https?:\/\/[^\s/]+/.test(u)) problems.push(`${where}: "${u}" is not an http(s) URL`);
+      for (const k of ['node', 'token_id', 'token_secret']) if (!isSet(c?.[k])) problems.push(`${where}: ${k} is required`);
+      const secret = String(c?.token_secret ?? '');
+      const exp = expand(secret, secrets);
+      for (const m of exp.missing) problems.push(`${where}.token_secret: \${${m}} is not defined in secrets.env or the environment`);
+      return {
+        id, name: c?.name ?? id, urls, node: c?.node, token_id: c?.token_id, token_secret: exp.text, insecure_tls: c?.insecure_tls === true,
+        allowed_vmids: c?.allowed_vmids ?? [], protected_vmids: c?.protected_vmids ?? [], featured_vmid: c?.featured_vmid ?? 0, conflicts: c?.conflicts ?? {}, host_power: c?.allow_host_power === true,
+      };
+    });
+    env.PVE_CLUSTERS = JSON.stringify(out);
+  }
+
   // Teams, group mapping, approvals, SCIM, passkeys
   const acc = (y.access ?? {}) as Yaml;
   const teams = (acc.teams && typeof acc.teams === 'object' ? acc.teams : {}) as Yaml;
   for (const [name, t] of Object.entries(teams)) {
     if (!/^[A-Za-z0-9._-]{1,40}$/.test(name)) problems.push(`access.teams.${name}: team names use letters, digits, . _ - (max 40)`);
     const v = (t as Yaml)?.vmids, tg = (t as Yaml)?.tags;
-    if (!isSet(v) && !isSet(tg)) problems.push(`access.teams.${name}: needs vmids and/or tags, otherwise the team can reach nothing`);
+      if (!isSet(v) && !isSet(tg)) problems.push(`access.teams.${name}: needs vmids and/or tags, otherwise the team can reach nothing`);
+    const tc = (t as Yaml)?.cluster;
+    if (isSet(tc) && !(Array.isArray(clusters) ? clusters : []).some((c: Yaml) => String(c?.id ?? c?.name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') === String(tc))) problems.push(`access.teams.${name}.cluster: no cluster with id "${tc}" in proxmox.clusters`);
     for (const x of Array.isArray(v) ? v : isSet(v) ? [v] : []) if (!/^\d+(\s*-\s*\d+)?$/.test(String(x))) problems.push(`access.teams.${name}.vmids: "${x}" is not an id or a range like 100-120`);
   }
   for (const [g, list] of Object.entries((acc.group_teams ?? {}) as Yaml)) {
@@ -196,7 +223,7 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
   const pair = (a: string, b: string, label: string) => {
     if (env[a] && !env[b]) problems.push(`${label}: ${a} is set but ${b} is missing`);
   };
-  pair('PVE_URL', 'PVE_TOKEN_ID', 'proxmox'); pair('PVE_TOKEN_ID', 'PVE_TOKEN_SECRET', 'proxmox'); pair('GRAFANA_URL', 'GRAFANA_TOKEN', 'grafana'); pair('KUMA_URL', 'KUMA_API_KEY', 'kuma');
+  pair('PVE_URL', 'PVE_TOKEN_ID', 'proxmox'); pair('PVE_TOKEN_ID', 'PVE_TOKEN_SECRET', 'proxmox'); pair('PVE_URL', 'PVE_NODE', 'proxmox'); pair('GRAFANA_URL', 'GRAFANA_TOKEN', 'grafana'); pair('KUMA_URL', 'KUMA_API_KEY', 'kuma');
   pair('NTFY_URL', 'NTFY_TOPIC', 'ntfy'); pair('AI_BASE_URL', 'AI_MODEL', 'ai');
   pair('GOTIFY_URL', 'GOTIFY_TOKEN', 'gotify'); pair('GOTIFY_TOKEN', 'GOTIFY_URL', 'gotify');
   pair('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'telegram'); pair('TELEGRAM_CHAT_ID', 'TELEGRAM_BOT_TOKEN', 'telegram');
@@ -207,7 +234,7 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
   if (env.PAGERDUTY_ROUTING_KEY && env.PAGERDUTY_ROUTING_KEY.length < 20) problems.push('pagerduty.routing_key: expected the 32-character Events API v2 integration key');
   if (env.OPSGENIE_REGION && !['us', 'eu'].includes(env.OPSGENIE_REGION.toLowerCase())) problems.push('opsgenie.region: use us or eu');
   if (env.SMTP_PORT && !/^\d{1,5}$/.test(env.SMTP_PORT)) problems.push('SMTP_PORT: must be a port number');
-  for (const k of ['PVE_URL', 'GRAFANA_URL', 'KUMA_URL', 'LOKI_URL', 'PROMETHEUS_URL', 'NTFY_URL', 'AI_BASE_URL', 'GOTIFY_URL', 'APPRISE_URL', 'WEBHOOK_URL', 'LLAMA_URL', 'LLAMA_AGENT_URL', 'GPU_AGENT_URL']) {
+  for (const k of ['GRAFANA_URL', 'KUMA_URL', 'LOKI_URL', 'PROMETHEUS_URL', 'NTFY_URL', 'AI_BASE_URL', 'GOTIFY_URL', 'APPRISE_URL', 'WEBHOOK_URL', 'LLAMA_URL', 'LLAMA_AGENT_URL', 'GPU_AGENT_URL']) {
     if (env[k] && !/^https?:\/\/[^\s/]+/.test(env[k])) problems.push(`${k}: "${env[k]}" is not an http(s) URL`);
   }
   return { env, problems, notes };
@@ -219,7 +246,8 @@ export interface FeatureRow { id: string; label: string; on: boolean; hint: stri
 export function featureRows(env: Record<string, string>): FeatureRow[] {
   const has = (...k: string[]) => k.every((x) => !!env[x]);
   return [
-    { id: 'proxmox', label: 'Proxmox guests and node', on: has('PVE_URL', 'PVE_NODE', 'PVE_TOKEN_ID', 'PVE_TOKEN_SECRET'), hint: 'proxmox.url, node, token_id, token_secret' },
+    { id: 'proxmox', label: 'Proxmox guests and node', on: has('PVE_CLUSTERS') || has('PVE_URL', 'PVE_NODE', 'PVE_TOKEN_ID', 'PVE_TOKEN_SECRET'), hint: 'proxmox.url, node, token_id, token_secret (or proxmox.clusters)' },
+    { id: 'clusters', label: 'Several clusters / nodes', on: has('PVE_CLUSTERS') && (JSON.parse(env.PVE_CLUSTERS).length > 1), hint: 'proxmox.clusters with two or more entries' },
     { id: 'grafana', label: 'Grafana embedding', on: has('GRAFANA_URL', 'GRAFANA_TOKEN'), hint: 'grafana.url, token' },
     { id: 'kuma', label: 'Uptime Kuma', on: has('KUMA_URL', 'KUMA_API_KEY'), hint: 'kuma.url, api_key' },
     { id: 'loki', label: 'Loki logs and analytics', on: has('LOKI_URL'), hint: 'loki.url' },

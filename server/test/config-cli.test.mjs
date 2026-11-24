@@ -148,3 +148,31 @@ test('toEnv: incident tools', () => {
   const bad = toEnv({ pagerduty: { routing_key: 'short' }, opsgenie: { api_key: 'o'.repeat(32), region: 'mars' } }, {}, {}).problems.join(' | ');
   assert.match(bad, /32-character/); assert.match(bad, /us or eu/);
 });
+
+test('toEnv: several clusters, failover addresses, and the single-cluster form still works', () => {
+  const multi = toEnv({
+    proxmox: { clusters: [
+      { id: 'lab', name: 'Lab', url: ['https://10.0.0.1:8006', 'https://10.0.0.2:8006'], node: 'pve1', token_id: 'a@pve!b', token_secret: '${LAB}', protected_vmids: [100], allow_host_power: true },
+      { name: 'Office', url: 'https://10.1.0.1:8006', node: 'pve', token_id: 'a@pve!b', token_secret: 'plain' },
+    ] },
+    access: { teams: { web: { cluster: 'lab', vmids: [100] } } },
+  }, { LAB: 'sekret' }, {});
+  assert.deepEqual(multi.problems, []);
+  const cl = JSON.parse(multi.env.PVE_CLUSTERS);
+  assert.deepEqual(cl.map((c) => c.id), ['lab', 'office']);
+  assert.deepEqual(cl[0].urls, ['https://10.0.0.1:8006', 'https://10.0.0.2:8006']);
+  assert.equal(cl[0].token_secret, 'sekret'); assert.equal(cl[0].host_power, true);
+  const on = Object.fromEntries(featureRows(multi.env).map((r) => [r.id, r.on]));
+  assert.deepEqual([on.proxmox, on.clusters], [true, true]);
+
+  const single = toEnv({ proxmox: { url: ['https://a:8006', 'https://b:8006'], node: 'pve', token_id: 'a@pve!b', token_secret: 'x' } }, {}, {});
+  assert.deepEqual(single.problems, []);
+  assert.equal(single.env.PVE_URL, 'https://a:8006 https://b:8006');
+  assert.equal(featureRows(single.env).find((r) => r.id === 'clusters').on, false);
+
+  const bad = toEnv({
+    proxmox: { url: 'https://x:8006', clusters: [{ id: 'a', node: 'n', token_id: 't' }, { id: 'a', url: 'ftp://x', node: 'n', token_id: 't', token_secret: 's' }] },
+    access: { teams: { t: { cluster: 'ghost', vmids: [1] } } },
+  }, {}, {}).problems.join(' | ');
+  for (const re of [/either url.*or clusters/, /duplicate cluster id/, /url .* is required/, /not an http/, /token_secret is required/, /no cluster with id "ghost"/]) assert.match(bad, re);
+});

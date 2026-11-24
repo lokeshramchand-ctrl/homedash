@@ -6,6 +6,8 @@ import { crowdsecWatch } from './crowdsec.js';
 import { registerAlertRules, routeChannels, silenceFor } from './alertrules.js';
 import { CHANNELS, anyChannelConfigured, channelById } from './channels.js';
 import type { Level, Msg } from './channels.js';
+import { forEachCluster, nodePath, where } from './clusters.js';
+import type { Cluster } from './clusters.js';
 import { cfg, pveConfigured } from './config.js';
 import { getState, setState } from './db.js';
 import type { EventRow } from './db.js';
@@ -110,7 +112,11 @@ const TITLES: Record<EventRow['source'], string> = { app: 'Dashboard', db: 'Data
 function eventKey(source: EventRow['source'], level: EventRow['level'], message: string): string | undefined {
   const ok = level === 'info' ? '|ok' : '';
   if (source === 'monitor') { const m = /^(.*): \w+ → \w+$/.exec(message); if (m) return `mon|${m[1]}${ok}`; }
-  if (source === 'host' && /^Proxmox API (unreachable|reachable again)/.test(message)) return `pve|api${ok}`;
+  const cl = /\[([^\]]+)\]/.exec(message)?.[1];
+  if (source === 'host' && /^Proxmox API (unreachable|reachable again)/.test(message)) return `pve|api${cl ? `|${cl}` : ''}${ok}`;
+  const node = /^Node (.+?) (went offline|is back online)/.exec(message);
+  if (source === 'host' && node) return `node|${cl ?? ''}|${node[1]}${ok}`;
+  if (source === 'host' && /^Cluster (lost quorum|has quorum again)/.test(message)) return `quorum|${cl ?? ''}${ok}`;
   return undefined;
 }
 
@@ -118,7 +124,7 @@ function eventKey(source: EventRow['source'], level: EventRow['level'], message:
 export function alertFromEvent(level: EventRow['level'], source: EventRow['source'], message: string) {
   if (level === 'info') {
     // Only recoveries are worth a push; routine info (starts, requested guest actions) is not.
-    const recovery = /reachable again|down → up$/.test(message);
+    const recovery = /reachable again|down → up$|is back online|has quorum again/.test(message);
     if (!recovery) return;
   }
   if (source === 'monitor' && level === 'warn') return; // pending = Kuma retrying; the down that may follow is what matters
@@ -129,29 +135,43 @@ export function alertFromEvent(level: EventRow['level'], source: EventRow['sourc
 // ---- watcher: thresholds and health Proxmox only exposes by polling ----
 const over = new Map<string, number>(); // metric → first time seen over threshold
 const raised = new Set<string>();
-let seenTasks = new Set<string>();
+const seenTasks = new Map<string, Set<string>>(); // per cluster node
 let kernelSince = new Date().toISOString();
-let firstTaskPoll = true;
 
-function threshold(key: string, label: string, value: number, limit: number, text: string) {
+function threshold(key: string, label: string, value: number, limit: number, text: string, place: string) {
   const now = Date.now();
   if (value >= limit) {
     if (!over.has(key)) over.set(key, now);
     if (now - over.get(key)! >= 5 * 60_000 && !raised.has(key)) {
       raised.add(key);
       logEvent('warn', 'host', `${label} high: ${text}`);
-      alert('resources', 'warn', `High ${label} on ${cfg.pveNode}`, `${text} for over 5 minutes`, `res|${key}`);
+      alert('resources', 'warn', `High ${label} on ${place}`, `${text} for over 5 minutes`, `res|${key}`);
     }
   } else if (value < limit - 0.05) {
     over.delete(key);
-    if (raised.delete(key)) alert('resources', 'info', `${label} back to normal on ${cfg.pveNode}`, text, `res|${key}|ok`);
+    if (raised.delete(key)) alert('resources', 'info', `${label} back to normal on ${place}`, text, `res|${key}|ok`);
   }
 }
+const CLUSTERS_FIRST = () => cfg.clusters[0] as Cluster | undefined;
 const pct = (f: number) => `${(f * 100).toFixed(0)}%`;
 
+/** Every online node of every cluster is checked; state and alert keys are per node. */
 async function watch() {
   if (!pveConfigured()) return;
-  const n = `/nodes/${encodeURIComponent(cfg.pveNode)}`;
+  await forEachCluster(async (c) => {
+    const nodes = await pve<{ node: string; status?: string }[]>('GET', '/cluster/resources?type=node').catch(() => []);
+    for (const nd of nodes) {
+      if (nd.status !== 'online') continue;
+      // Kernel errors come from the journal of the machine homedash runs on, so they are only read once per cycle.
+      await watchNode(c, nd.node, c === CLUSTERS_FIRST() && nd.node === c.node);
+    }
+  });
+}
+
+async function watchNode(c: Cluster, node: string, local: boolean) {
+  const n = nodePath(node);
+  const P = `${c.id}:${node}:`;
+  const place = where(node, c);
   const [status, tasks, disks, services] = await Promise.allSettled([
     pve<any>('GET', `${n}/status`),
     pve<any[]>('GET', `${n}/tasks?errors=1&limit=20&source=all`),
@@ -162,43 +182,43 @@ async function watch() {
     const s = status.value;
     const mem = s.memory?.total ? s.memory.used / s.memory.total : 0;
     const root = s.rootfs?.total ? s.rootfs.used / s.rootfs.total : 0;
-    threshold('cpu', 'CPU', Number(s.cpu ?? 0), cfg.ntfy.cpuLimit, `CPU at ${pct(Number(s.cpu ?? 0))}`);
-    threshold('mem', 'memory', mem, cfg.ntfy.memLimit, `RAM at ${pct(mem)}`);
-    threshold('disk', 'disk usage', root, cfg.ntfy.diskLimit, `root filesystem at ${pct(root)}`);
+    threshold(`${P}cpu`, 'CPU', Number(s.cpu ?? 0), cfg.ntfy.cpuLimit, `CPU at ${pct(Number(s.cpu ?? 0))}`, place);
+    threshold(`${P}mem`, 'memory', mem, cfg.ntfy.memLimit, `RAM at ${pct(mem)}`, place);
+    threshold(`${P}disk`, 'disk usage', root, cfg.ntfy.diskLimit, `root filesystem at ${pct(root)}`, place);
   }
   if (tasks.status === 'fulfilled') {
     const ids = new Set(tasks.value.map((t) => String(t.upid)));
+    const before = seenTasks.get(P); // undefined on the first look: remember what exists, do not replay history
     for (const t of tasks.value) {
-      if (firstTaskPoll || seenTasks.has(t.upid) || !t.endtime || t.status === 'OK') continue;
+      if (!before || before.has(t.upid) || !t.endtime || t.status === 'OK') continue;
       const what = `${t.type}${t.id ? ` ${t.id}` : ''}`;
       logEvent('error', 'host', `Proxmox task failed: ${what}: ${t.status}`, { upid: t.upid });
       alert('tasks', 'error', `Task failed · ${what}`, `${t.status} (by ${t.user})`, `task|${t.upid}`);
     }
-    seenTasks = ids;
-    firstTaskPoll = false;
+    seenTasks.set(P, ids);
   }
   if (disks.status === 'fulfilled') {
     for (const d of disks.value) {
       const h = String(d.health ?? 'UNKNOWN');
-      if (h !== 'PASSED' && h !== 'OK' && h !== 'UNKNOWN') alert('disks', 'error', `Disk health ${h}`, `${d.devpath} (${d.model ?? 'disk'}) reports S.M.A.R.T. ${h}`, `disk|${d.devpath}|${h}`);
-      if (typeof d.wearout === 'number' && d.wearout <= 10) alert('disks', 'warn', 'SSD nearly worn out', `${d.devpath} has ${d.wearout}% life left`, `wear|${d.devpath}`);
+      if (h !== 'PASSED' && h !== 'OK' && h !== 'UNKNOWN') alert('disks', 'error', `Disk health ${h}`, `${d.devpath} (${d.model ?? 'disk'}) on ${place} reports S.M.A.R.T. ${h}`, `disk|${P}${d.devpath}|${h}`);
+      if (typeof d.wearout === 'number' && d.wearout <= 10) alert('disks', 'warn', 'SSD nearly worn out', `${d.devpath} has ${d.wearout}% life left on ${place}`, `wear|${P}${d.devpath}`);
     }
   }
   // Kernel lines since the previous poll: GPU passthrough faults, PCIe AER, MCE, I/O errors, OOM kills.
   const from = kernelSince;
-  kernelSince = new Date().toISOString();
-  for (const l of await recentHardwareErrors(from)) {
+  if (local) kernelSince = new Date().toISOString();
+  for (const l of local ? await recentHardwareErrors(from) : []) {
     const cat: Category = l.kind === 'gpu' ? 'gpu' : l.kind === 'oom' ? 'guest' : 'hardware';
     const title = l.kind === 'gpu' ? 'GPU / passthrough error' : l.kind === 'oom' ? 'Out-of-memory kill' : l.kind === 'crash' ? 'Process crash' : 'Hardware error';
     // Key on the message minus numbers so a burst of near-identical lines is one alert.
-    alert(cat, 'error', `${title} on ${cfg.pveNode}`, l.message.slice(0, 400), `k|${l.kind}|${l.message.replace(/\d+/g, '#').slice(0, 120)}`);
+    alert(cat, 'error', `${title} on ${place}`, l.message.slice(0, 400), `k|${l.kind}|${l.message.replace(/\d+/g, '#').slice(0, 120)}`);
   }
   if (services.status === 'fulfilled') {
     for (const s of services.value) {
       const name = String(s.name ?? s.service);
-      const key = `svc|${name}`;
+      const key = `svc|${P}${name}`;
       const down = s['unit-state'] === 'enabled' && s.state !== 'running';
-      if (down && !raised.has(key)) { raised.add(key); logEvent('error', 'host', `Service ${name} is ${s.state}`); alert('services', 'error', `Service down · ${name}`, `${s.desc ?? name} is ${s.state} on ${cfg.pveNode}`, key); }
+      if (down && !raised.has(key)) { raised.add(key); logEvent('error', 'host', `Service ${name} is ${s.state} on ${place}`); alert('services', 'error', `Service down · ${name}`, `${s.desc ?? name} is ${s.state} on ${place}`, key); }
       else if (!down && raised.delete(key)) { logEvent('info', 'host', `Service ${name} running again`); alert('services', 'info', `Service recovered · ${name}`, `${name} is running again`, `${key}|ok`); }
     }
   }

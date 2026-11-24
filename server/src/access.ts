@@ -41,27 +41,32 @@ export function accessFromGroups(groups: string[], fallback: Role, isAdminListed
 }
 
 // ---- scope -------------------------------------------------------------------------------------
-export interface Scope { vmids: Set<number>; ranges: [number, number][]; tags: Set<string> }
+/** One team's slice of one cluster (or of every cluster when `cluster` is undefined). */
+interface Rule { cluster?: string; vmids: Set<number>; ranges: [number, number][]; tags: Set<string> }
+export interface Scope { rules: Rule[] }
 
 /** Union of everything the user's teams allow. null = not scoped. Unknown team names grant nothing. */
 export function scopeOf(teams: string[]): Scope | null {
   if (!teams.length) return null;
-  const s: Scope = { vmids: new Set(), ranges: [], tags: new Set() };
+  const rules: Rule[] = [];
   for (const name of teams) {
     const t = A.teams[name];
     if (!t) continue;
-    for (const [lo, hi] of t.ranges) { if (lo === hi) s.vmids.add(lo); else s.ranges.push([lo, hi]); }
-    for (const tag of t.tags) s.tags.add(tag.toLowerCase());
+    const r: Rule = { cluster: t.cluster, vmids: new Set(), ranges: [], tags: new Set(t.tags.map((x) => x.toLowerCase())) };
+    for (const [lo, hi] of t.ranges) { if (lo === hi) r.vmids.add(lo); else r.ranges.push([lo, hi]); }
+    rules.push(r);
   }
-  return s;
+  return { rules };
 }
 
-export const inScope = (s: Scope | null, g: { vmid: number; tags: string[] }): boolean =>
-  s === null || s.vmids.has(g.vmid) || s.ranges.some(([lo, hi]) => g.vmid >= lo && g.vmid <= hi) || g.tags.some((t) => s.tags.has(t.toLowerCase()));
+/** `cluster` is part of the test because guest ids repeat across clusters: team "web" owns 100-120 on one cluster only. */
+export const inScope = (s: Scope | null, g: { vmid: number; tags: string[]; cluster?: string }): boolean =>
+  s === null || s.rules.some((r) => (!r.cluster || !g.cluster || r.cluster === g.cluster)
+    && (r.vmids.has(g.vmid) || r.ranges.some(([lo, hi]) => g.vmid >= lo && g.vmid <= hi) || g.tags.some((t) => r.tags.has(t.toLowerCase()))));
 
 /** Routes a scoped user may reach at all. Everything else is host-wide and refused. */
 const SCOPED_ALLOWED = [
-  /^\/api\/auth\//, /^\/api\/features$/, /^\/api\/approvals/, /^\/api\/guests(\/|$)/,
+  /^\/api\/auth\//, /^\/api\/features$/, /^\/api\/clusters$/, /^\/api\/approvals/, /^\/api\/guests(\/|$)/,
 ];
 export const scopedMayReach = (path: string) => SCOPED_ALLOWED.some((re) => re.test(path));
 

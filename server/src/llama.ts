@@ -12,6 +12,7 @@ import { cfg, llamaConfigured, pveConfigured } from './config.js';
 import { getState, insertAudit, setState } from './db.js';
 import { HttpError, notConfigured } from './errors.js';
 import { logEvent } from './events.js';
+import { guestNode } from './guests.js';
 import { pve } from './proxmox.js';
 
 // ---------- launch settings (validated here and again by the agent) ----------
@@ -169,7 +170,7 @@ function pickSlots(s: any) {
 async function vmStatus() {
   if (!pveConfigured()) return null;
   try {
-    const s = await pve<any>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/qemu/${cfg.llama.vmid}/status/current`);
+    const s = await pve<any>('GET', `${await guestNode(cfg.llama.vmid)}/qemu/${cfg.llama.vmid}/status/current`);
     return { vmid: cfg.llama.vmid, name: String(s.name ?? ''), status: String(s.status ?? 'unknown'), uptime: num(s.uptime) };
   } catch { return { vmid: cfg.llama.vmid, name: '', status: 'unknown', uptime: null }; }
 }

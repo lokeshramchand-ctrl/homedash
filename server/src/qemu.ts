@@ -2,6 +2,7 @@
 // snapshot create/rollback/delete, backups and send-key. Every write is audited, refuses
 // protected guests, and (for destructive ones) needs the name typed back as confirmation.
 import type { FastifyInstance } from 'fastify';
+import { nodePath } from './clusters.js';
 import { cfg } from './config.js';
 import { insertAudit } from './db.js';
 import { HttpError } from './errors.js';
@@ -9,7 +10,6 @@ import { findGuest, guestPath } from './guests.js';
 import type { Guest } from './guests.js';
 import { pve } from './proxmox.js';
 
-const node = () => `/nodes/${encodeURIComponent(cfg.pveNode)}`;
 const SNAP_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
 const KEYS: Record<string, string> = { 'ctrl-alt-delete': 'ctrl-alt-delete', 'ctrl-alt-f1': 'ctrl-alt-f1', 'ctrl-alt-f2': 'ctrl-alt-f2', esc: 'esc', 'win': 'meta_l', 'alt-f4': 'alt-f4' };
 
@@ -129,10 +129,10 @@ export function registerQemu(app: FastifyInstance) {
   // Backups of this guest across every storage that holds backups.
   app.get<{ Params: { vmid: string } }>('/api/guests/:vmid/backups', async (req) => {
     const g = await findGuest(req.params.vmid);
-    const stores = (await pve<any[]>('GET', `${node()}/storage?content=backup`)).filter((s) => s.active !== 0 && s.enabled !== 0);
+    const stores = (await pve<any[]>('GET', `${nodePath(g.node)}/storage?content=backup`)).filter((s) => s.active !== 0 && s.enabled !== 0);
     const rows = await Promise.all(stores.map(async (s) => {
       try {
-        const items = await pve<any[]>('GET', `${node()}/storage/${encodeURIComponent(s.storage)}/content?content=backup&vmid=${g.vmid}`);
+        const items = await pve<any[]>('GET', `${nodePath(g.node)}/storage/${encodeURIComponent(s.storage)}/content?content=backup&vmid=${g.vmid}`);
         return items.map((i) => ({ volid: String(i.volid), storage: String(s.storage), size: Number(i.size ?? 0), time: Number(i.ctime ?? 0), format: String(i.format ?? ''), notes: i.notes ? String(i.notes) : '', protected: !!i.protected }));
       } catch { return []; }
     }));
@@ -146,7 +146,7 @@ export function registerQemu(app: FastifyInstance) {
     const mode = req.body?.mode ?? 'snapshot';
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(storage)) throw new HttpError(400, 'BAD_REQUEST', 'Invalid storage');
     if (!['snapshot', 'suspend', 'stop'].includes(mode)) throw new HttpError(400, 'BAD_REQUEST', 'Invalid mode');
-    return run(done, () => pve<string>('POST', `${node()}/vzdump`, { vmid: String(g.vmid), storage, mode, compress: 'zstd' }));
+    return run(done, () => pve<string>('POST', `${nodePath(g.node)}/vzdump`, { vmid: String(g.vmid), storage, mode, compress: 'zstd' }));
   });
 
   // Snapshot create/delete live in guests.ts; only the rollback (with typed confirmation) is added here.

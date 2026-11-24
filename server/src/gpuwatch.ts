@@ -19,6 +19,7 @@ import { getState, listGpuSamples, setState, upsertGpuSample } from './db.js';
 import { HttpError } from './errors.js';
 import { logEvent } from './events.js';
 import { alert } from './notify.js';
+import { guestNode } from './guests.js';
 import { pve } from './proxmox.js';
 
 // ---------- types ----------
@@ -185,7 +186,7 @@ async function fetchLlama(): Promise<LlamaState | null> {
 async function vmIsRunning(): Promise<boolean | null> {
   if (!pveConfigured()) return null;
   try {
-    const s = await pve<{ status?: string }>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/qemu/${cfg.gpuWatch.vmid}/status/current`);
+    const s = await pve<{ status?: string }>('GET', `${await guestNode(cfg.gpuWatch.vmid)}/qemu/${cfg.gpuWatch.vmid}/status/current`);
     return s.status === 'running';
   } catch { return null; }
 }

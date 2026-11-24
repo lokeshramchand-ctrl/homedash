@@ -1,3 +1,4 @@
+import { hostPath } from './clusters.js';
 import type { FastifyInstance } from 'fastify';
 import { cfg, pveConfigured } from './config.js';
 import { notConfigured } from './errors.js';
@@ -5,7 +6,7 @@ import { logEvent } from './events.js';
 import { buildCapacity, buildProtection } from './insights.js';
 import { pve } from './proxmox.js';
 
-const node = () => `/nodes/${encodeURIComponent(cfg.pveNode)}`;
+const node = () => hostPath();
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'unknown';

@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
 import Fastify from 'fastify';
 import { registerAdmin } from './admin.js';
+import { registerCluster, registerClusterContext } from './cluster.js';
 import { registerApprovals } from './approvals.js';
 import { registerAuth } from './auth.js';
 import { registerPasskeys } from './passkeys.js';
@@ -86,6 +87,7 @@ app.addHook('onRequest', async (req, reply) => {
 
 connectDb();
 await app.register(cookie);
+registerClusterContext(app); // first: auth and scope checks must already see the selected cluster
 registerRateLimit(app);
 registerAuth(app);
 registerApprovals(app); // a preHandler hook: must be registered before the routes it guards
@@ -112,6 +114,7 @@ registerMetrics(app);
 registerFeatures(app);
 registerLoki(app);
 registerCrowdsec(app);
+registerCluster(app);
 registerQemu(app);
 registerVmOps(app);
 registerLlama(app);
