@@ -20,6 +20,8 @@ function conflicts(): Record<number, number[]> {
 }
 
 const trim = (u: string) => u.replace(/\/+$/, '');
+/** OIDC_<name>, falling back to the legacy KEYCLOAK_<name>. */
+const oenv = (name: string): string => env(`OIDC_${name}`) || env(`KEYCLOAK_${name}`);
 
 export const cfg = {
   port: Number(env('PORT', '3000')),
@@ -59,14 +61,20 @@ export const cfg = {
   journalEnabled: bool('JOURNAL_ENABLED', true), // /api/logs/journal reads the host journal (dashboard user needs the systemd-journal group)
   eventRetentionDays: Number(env('EVENT_RETENTION_DAYS', '90')),
 
-  keycloak: {
-    issuer: trim(env('KEYCLOAK_ISSUER')), // https://sso.example.com/realms/<realm>
-    clientId: env('KEYCLOAK_CLIENT_ID'),
-    clientSecret: env('KEYCLOAK_CLIENT_SECRET'), // empty = public client (PKCE only)
-    redirectUri: env('KEYCLOAK_REDIRECT_URI'), // https://<dashboard host>/api/auth/sso/callback
-    allowedUsers: env('KEYCLOAK_ALLOWED_USERS').toLowerCase().split(/[\s,]+/).filter(Boolean), // preferred_username or email
-    requiredRole: env('KEYCLOAK_REQUIRED_ROLE'), // realm role or client role
-    label: env('KEYCLOAK_LABEL', 'Keycloak'),
+  // Sign-in with any OpenID Connect provider (Keycloak, Authentik, Authelia, Zitadel, Entra ID, Google, Okta, ...).
+  // OIDC_* are the names to use; the older KEYCLOAK_* names still work as fallbacks.
+  oidc: {
+    issuer: trim(oenv('ISSUER')), // the provider's issuer URL, e.g. https://sso.example.com/realms/<realm>
+    clientId: oenv('CLIENT_ID'),
+    clientSecret: oenv('CLIENT_SECRET'), // empty = public client (PKCE only)
+    redirectUri: oenv('REDIRECT_URI'), // https://<dashboard host>/api/auth/sso/callback
+    scopes: oenv('SCOPES') || 'openid profile email',
+    allowedUsers: oenv('ALLOWED_USERS').toLowerCase().split(/[\s,]+/).filter(Boolean), // preferred_username or email
+    requiredRole: oenv('REQUIRED_ROLE'), // a role or group the user must have
+    // Where roles/groups live in the ID token, dot path(s), comma separated. The defaults cover Keycloak
+    // (realm_access.roles, resource_access.<client>.roles) plus the common `roles` and `groups` claims.
+    rolesClaims: (oenv('ROLES_CLAIM') || 'realm_access.roles,resource_access.{client}.roles,roles,groups').split(',').map((x) => x.trim()).filter(Boolean),
+    label: oenv('LABEL') || 'Single sign-on',
   },
 
   ntfy: {
@@ -95,7 +103,7 @@ export const cfg = {
 
 export const pveConfigured = () => !!(cfg.pveUrl && cfg.pveNode && cfg.pveTokenId && cfg.pveTokenSecret);
 export const grafanaConfigured = () => !!(cfg.grafanaUrl && cfg.grafanaToken);
-export const keycloakConfigured = () => !!(cfg.keycloak.issuer && cfg.keycloak.clientId && cfg.keycloak.redirectUri);
+export const oidcConfigured = () => !!(cfg.oidc.issuer && cfg.oidc.clientId && cfg.oidc.redirectUri);
 export const kumaConfigured = () => !!(cfg.kumaUrl && cfg.kumaApiKey);
 export const ntfyConfigured = () => !!(cfg.ntfy.url && cfg.ntfy.topic);
 export const aiConfigured = () => !!(cfg.ai.baseUrl && cfg.ai.model);

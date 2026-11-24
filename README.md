@@ -64,7 +64,7 @@ The installer puts nginx in the container and sets `NGINX_MANAGE=true`, so the N
 
 ### Everything else in `.env`
 
-Every option is documented in [`server/.env.example`](server/.env.example): protected guests (`PROTECTED_VMIDS`), a featured guest card (`FEATURED_VMID`), device-conflict warnings (`GUEST_CONFLICTS`), ntfy alerts, Keycloak/OIDC sign-in, an optional AI log helper and more. After editing: `systemctl restart homedash`.
+Every option is documented in [`server/.env.example`](server/.env.example): protected guests (`PROTECTED_VMIDS`), a featured guest card (`FEATURED_VMID`), device-conflict warnings (`GUEST_CONFLICTS`), ntfy alerts, OIDC sign-in (any provider), an optional AI log helper and more. After editing: `systemctl restart homedash`.
 
 ### Update
 

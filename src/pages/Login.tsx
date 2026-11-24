@@ -6,12 +6,12 @@ import { InView, Reveal, RevealWords } from '../components/Reveal';
 import { Icon, Spinner } from '../components/ui';
 
 const SSO_ERRORS: Record<string, string> = {
-  SSO_DENIED: 'Sign-in was cancelled or refused by Keycloak.',
+  SSO_DENIED: 'Sign-in was cancelled or refused by the identity provider.',
   SSO_STATE: 'The sign-in attempt expired. Please try again.',
-  SSO_FAILED: 'Keycloak sign-in could not be verified.',
-  SSO_UNAVAILABLE: 'Keycloak is unreachable right now.',
-  USER_NOT_ALLOWED: 'This Keycloak account is not allowed to use homedash.',
-  ROLE_MISSING: 'This Keycloak account lacks the required role.',
+  SSO_FAILED: 'Single sign-on could not be verified.',
+  SSO_UNAVAILABLE: 'The identity provider is unreachable right now.',
+  USER_NOT_ALLOWED: 'This account is not allowed to use homedash.',
+  ROLE_MISSING: 'This account lacks the required role.',
 };
 
 export default function Login({ onLogin }: { onLogin: (u: string) => void }) {

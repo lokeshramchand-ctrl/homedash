@@ -1,18 +1,22 @@
 import { createHash, createPublicKey, randomBytes, verify } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { createSession } from './auth.js';
-import { cfg, keycloakConfigured } from './config.js';
+import { cfg, oidcConfigured } from './config.js';
 import { saveOidc, takeOidc, upsertSsoUser } from './db.js';
 import { HttpError } from './errors.js';
 import { logEvent } from './events.js';
 
-// Keycloak sign-in: authorization code flow with PKCE and a verified ID token (RS256 via the realm JWKS).
-// The Keycloak user must pass KEYCLOAK_ALLOWED_USERS and/or KEYCLOAK_REQUIRED_ROLE; with neither set SSO stays off.
+// OpenID Connect sign-in (any provider): authorization code flow with PKCE and a verified ID token (signature checked
+// against the provider JWKS). The user must pass OIDC_ALLOWED_USERS and/or OIDC_REQUIRED_ROLE; with neither set SSO stays off.
 
-const kc = cfg.keycloak;
+const kc = cfg.oidc;
 const STATE_COOKIE = 'sso_state';
 const b64u = (b: Buffer) => b.toString('base64url');
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+const ALGS: Record<string, { hash: string; ec?: boolean }> = {
+  RS256: { hash: 'RSA-SHA256' }, RS384: { hash: 'RSA-SHA384' }, RS512: { hash: 'RSA-SHA512' }, ES256: { hash: 'SHA256', ec: true },
+};
 
 interface Discovery { authorization_endpoint: string; token_endpoint: string; jwks_uri: string; issuer: string }
 let disco: { at: number; d: Discovery } | null = null;
@@ -46,15 +50,29 @@ async function keyFor(kid: string | undefined) {
 interface Claims {
   iss: string; aud: string | string[]; azp?: string; exp: number; nonce?: string; sub: string;
   preferred_username?: string; email?: string; email_verified?: boolean;
-  realm_access?: { roles?: string[] }; resource_access?: Record<string, { roles?: string[] }>;
+  [claim: string]: unknown;
+}
+
+/** Collects role/group names from every configured claim path (strings or arrays of strings). */
+function rolesOf(c: Claims): Set<string> {
+  const out = new Set<string>();
+  for (const path of kc.rolesClaims) {
+    let v: unknown = c;
+    for (const part of path.replace('{client}', kc.clientId).split('.')) {
+      v = v && typeof v === 'object' ? (v as Record<string, unknown>)[part] : undefined;
+    }
+    for (const x of Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[\s,]+/) : []) if (typeof x === 'string' && x) out.add(x);
+  }
+  return out;
 }
 
 async function verifyIdToken(token: string, nonce: string): Promise<Claims> {
   const [h, p, s] = token.split('.');
   if (!h || !p || !s) throw new Error('Malformed ID token');
   const header = JSON.parse(Buffer.from(h, 'base64url').toString()) as { alg: string; kid?: string };
-  if (header.alg !== 'RS256') throw new Error(`Unsupported ID token algorithm ${header.alg}`);
-  const ok = verify('RSA-SHA256', Buffer.from(`${h}.${p}`), await keyFor(header.kid), Buffer.from(s, 'base64url'));
+  const algo = ALGS[header.alg];
+  if (!algo) throw new Error(`Unsupported ID token algorithm ${header.alg}`);
+  const ok = verify(algo.hash, Buffer.from(`${h}.${p}`), algo.ec ? { key: await keyFor(header.kid), dsaEncoding: 'ieee-p1363' } : await keyFor(header.kid), Buffer.from(s, 'base64url'));
   if (!ok) throw new Error('ID token signature invalid');
   const c = JSON.parse(Buffer.from(p, 'base64url').toString()) as Claims;
   const aud = Array.isArray(c.aud) ? c.aud : [c.aud];
@@ -67,19 +85,19 @@ async function verifyIdToken(token: string, nonce: string): Promise<Claims> {
 
 function authorize(c: Claims): string | null {
   const names = [c.preferred_username, c.email_verified === false ? undefined : c.email].filter(Boolean).map((x) => x!.toLowerCase());
-  const roles = new Set([...(c.realm_access?.roles ?? []), ...(c.resource_access?.[kc.clientId]?.roles ?? [])]);
+  const roles = rolesOf(c);
   if (kc.allowedUsers.length && !names.some((n) => kc.allowedUsers.includes(n))) return 'USER_NOT_ALLOWED';
   if (kc.requiredRole && !roles.has(kc.requiredRole)) return 'ROLE_MISSING';
   return null;
 }
 
 export function ssoEnabled(): boolean {
-  return keycloakConfigured() && (kc.allowedUsers.length > 0 || !!kc.requiredRole);
+  return oidcConfigured() && (kc.allowedUsers.length > 0 || !!kc.requiredRole);
 }
 
 export function registerOidc(app: FastifyInstance) {
-  if (keycloakConfigured() && !ssoEnabled()) {
-    app.log.warn('Keycloak is configured but neither KEYCLOAK_ALLOWED_USERS nor KEYCLOAK_REQUIRED_ROLE is set; SSO stays disabled');
+  if (oidcConfigured() && !ssoEnabled()) {
+    app.log.warn('OIDC is configured but neither OIDC_ALLOWED_USERS nor OIDC_REQUIRED_ROLE is set; SSO stays disabled');
   }
 
   app.get('/api/auth/sso/config', async () => ({ enabled: ssoEnabled(), label: kc.label }));
@@ -92,12 +110,12 @@ export function registerOidc(app: FastifyInstance) {
     saveOidc(sha256(state), verifier, nonce, 10 * 60_000);
     let d: Discovery;
     try { d = await discovery(); } catch (e) {
-      req.log.error({ err: (e as Error).message }, 'keycloak discovery failed');
+      req.log.error({ err: (e as Error).message }, 'oidc discovery failed');
       return reply.redirect('/?sso_error=SSO_UNAVAILABLE');
     }
     const url = new URL(d.authorization_endpoint);
     url.search = new URLSearchParams({
-      client_id: kc.clientId, response_type: 'code', scope: 'openid profile email', redirect_uri: kc.redirectUri,
+      client_id: kc.clientId, response_type: 'code', scope: kc.scopes, redirect_uri: kc.redirectUri,
       state, nonce, code_challenge: b64u(createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256',
     }).toString();
     // Lax: the callback is a cross-site top-level redirect, which a Strict cookie would not survive.
@@ -108,7 +126,7 @@ export function registerOidc(app: FastifyInstance) {
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/api/auth/sso/callback', async (req, reply) => {
     const fail = (code: string, why?: string) => {
       req.log.warn({ code, why, ip: req.ip }, 'sso login failed');
-      logEvent('warn', 'auth', `Keycloak sign-in refused (${code})${why ? `: ${why}` : ''}`, { ip: req.ip });
+      logEvent('warn', 'auth', `SSO sign-in refused (${code})${why ? `: ${why}` : ''}`, { ip: req.ip });
       reply.clearCookie(STATE_COOKIE, { path: '/api/auth/sso' });
       return reply.redirect(`/?sso_error=${code}`);
     };
@@ -138,11 +156,11 @@ export function registerOidc(app: FastifyInstance) {
     const display = claims.preferred_username ?? claims.email ?? claims.sub;
     if (denied) return fail(denied, display);
 
-    const username = `kc:${display}`.toLowerCase().slice(0, 64);
+    const username = `sso:${display}`.toLowerCase().slice(0, 64);
     const user = upsertSsoUser(`${kc.issuer}|${claims.sub}`, username);
     await createSession(req, reply, user.id, user.username);
     reply.clearCookie(STATE_COOKIE, { path: '/api/auth/sso' });
-    req.log.info({ username: user.username, ip: req.ip }, 'login (keycloak)');
+    req.log.info({ username: user.username, ip: req.ip }, 'login (oidc)');
     return reply.redirect('/');
   });
 }
