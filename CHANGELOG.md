@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Services dashboard: 11 more service kinds (Sonarr, Radarr, Lidarr, Prowlarr, qBittorrent, Plex, AdGuard Home, Traefik, Immich, Nextcloud, UPS via NUT), an Add service form with a Test button and sealed secrets, Find services (probes your running guests for known apps), logos, response sparklines, pinning, drag-to-arrange, a launcher view, accent colours, wall mode and a per-user saved layout.
+- Built-in HTTPS from your own certificate files (renewals picked up without a restart) or a self-signed one; installable app (PWA with icons and an offline shell, never caching API data); optional new-version notice with the `update` hint.
 - Node upkeep: pending package updates (flagging a new kernel) and ZFS pool health (degraded, faulted, nearly full) are read hourly per node, alert once and recover, and show under `/api/cluster/upkeep`.
 - Self-backup: `server.backup_dir` writes a consistent copy of homedash's own database on a schedule (mode 0600, newest N kept), with `GET/POST /api/admin/backups` to list and run one. Failures alert.
 - Proxmox Backup Server tile (datastore fullness, failed tasks in the last 24 h, datastores that fill within 30 days).

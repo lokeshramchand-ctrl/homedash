@@ -36,6 +36,7 @@ const ROWS: Row[] = [
   R('server.secure_cookies', 'COOKIE_SECURE'), R('server.session_hours', 'SESSION_TTL_HOURS'), R('server.session_idle_minutes', 'SESSION_IDLE_MINUTES'),
   R('server.serve_dist', 'SERVE_DIST'), R('server.database', 'DB_PATH'), R('server.frame_src', 'FRAME_SRC', list(' ')),
   R('server.log_retention_days', 'EVENT_RETENTION_DAYS'),
+  R('server.tls.cert_file', 'TLS_CERT_FILE'), R('server.tls.key_file', 'TLS_KEY_FILE'), R('server.tls.self_signed', 'TLS_SELF_SIGNED'), R('server.tls.names', 'TLS_NAMES', list(',')), R('server.update_check', 'UPDATE_CHECK'),
   R('server.backup_dir', 'BACKUP_DIR'), R('server.backup_keep', 'BACKUP_KEEP'), R('server.backup_every_hours', 'BACKUP_EVERY_HOURS'), R('proxmox.updates_alert_count', 'UPDATES_ALERT_COUNT'), R('server.host_journal', 'JOURNAL_ENABLED'),
 
   R('proxmox.url', 'PVE_URL', list(' ')), R('proxmox.cluster_name', 'PVE_CLUSTER_NAME'), R('proxmox.node', 'PVE_NODE'), R('proxmox.token_id', 'PVE_TOKEN_ID'), R('proxmox.token_secret', 'PVE_TOKEN_SECRET'),
@@ -281,6 +282,10 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
     }
   }
 
+  if (!!env.TLS_CERT_FILE !== !!env.TLS_KEY_FILE) problems.push('server.tls: cert_file and key_file go together');
+  if (env.TLS_CERT_FILE && env.TLS_SELF_SIGNED === 'true') problems.push('server.tls: use cert_file + key_file or self_signed, not both');
+  if ((env.TLS_CERT_FILE || env.TLS_SELF_SIGNED === 'true') && y.server?.https === false) problems.push('server.tls is set but server.https is false: pick one');
+
   // Required pairs
   const pair = (a: string, b: string, label: string) => {
     if (env[a] && !env[b]) problems.push(`${label}: ${a} is set but ${b} is missing`);
@@ -339,6 +344,8 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'auditexport', label: 'Audit export (SIEM)', on: has('AUDIT_SYSLOG') || has('AUDIT_WEBHOOK_URL'), hint: 'audit.syslog or audit.webhook_url' },
     { id: 'policy', label: 'Config as code (scenes, routes, windows)', on: !!env.POLICY, hint: 'policy: { scenes, schedules, alert_routes, maintenance }' },
     { id: 'status', label: 'Public status page', on: /"enabled":true/.test(env.STATUS_PAGE ?? ''), hint: 'status_page: { enabled: true, tiles: [...] }' },
+    { id: 'tls', label: 'Built-in HTTPS', on: has('TLS_CERT_FILE', 'TLS_KEY_FILE') || env.TLS_SELF_SIGNED === 'true', hint: 'server.tls: { cert_file, key_file } or { self_signed: true }' },
+    { id: 'updatecheck', label: 'New-version notice', on: env.UPDATE_CHECK === 'true', hint: 'server.update_check: true' },
     { id: 'selfbackup', label: 'Database backups (homedash itself)', on: has('BACKUP_DIR'), hint: 'server.backup_dir: /var/backups/homedash' },
     { id: 'nginx', label: 'nginx site manager', on: env.NGINX_MANAGE === 'true', hint: 'nginx.manage: true' },
   ];

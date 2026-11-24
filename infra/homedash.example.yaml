@@ -344,3 +344,14 @@ addons:
 #   backup_keep: 14
 # proxmox:
 #   updates_alert_count: 30
+
+# Built-in HTTPS (no reverse proxy needed). Use a certificate you already have (certbot, acme.sh, Proxmox ACME, your CA):
+# a renewed file is picked up within hours, no restart. Or let homedash make a self-signed one for itself.
+# homedash does not talk to Let's Encrypt itself.
+# server:
+#   https: true
+#   tls:
+#     cert_file: /etc/letsencrypt/live/dash.example.com/fullchain.pem
+#     key_file: /etc/letsencrypt/live/dash.example.com/privkey.pem
+#   # or:  tls: { self_signed: true, names: [dash.lan, 192.0.2.30] }
+#   update_check: true        # shows a notice when a newer release exists (asks api.github.com every 12 h)

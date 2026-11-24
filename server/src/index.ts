@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
 import Fastify from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { registerAdmin } from './admin.js';
 import { registerCluster, registerClusterContext } from './cluster.js';
 import { registerApprovals } from './approvals.js';
@@ -44,16 +45,21 @@ import { registerMaintenance } from './maintenance.js';
 import { registerSelfBackup, startSelfBackup } from './selfbackup.js';
 import { registerDiscover } from './discover.js';
 import { registerPrefs } from './prefs.js';
+import { tlsOptions, watchTls } from './tls.js';
+import { registerUpdates, startUpdateCheck } from './updates.js';
 import { registerStatus } from './status.js';
 import { registerHa } from './ha.js';
 import { registerTiles, startTiles } from './tiles.js';
 import { registerOverview } from './overview.js';
 
+const tls = tlsOptions(cfg.dbPath);
 const app = Fastify({
+  ...(tls ? { https: tls } : {}),
   trustProxy: cfg.trustProxy,
   bodyLimit: 64 * 1024,
   logger: { level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.cookie', 'req.headers.authorization'] },
-});
+}) as unknown as FastifyInstance;
+if (tls) watchTls(app.server as unknown as import('node:https').Server, cfg.dbPath, app.log);
 
 app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, req, reply) => {
   if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, code: err.code });
@@ -128,6 +134,7 @@ registerCluster(app);
 registerTiles(app);
 registerHa(app);
 registerStatus(app);
+registerUpdates(app);
 registerPrefs(app);
 registerDiscover(app);
 registerMaintenance(app);
@@ -153,6 +160,7 @@ startEvents(app);
 startNotify(app);
 startGpuWatch(app);
 startTiles(app);
+startUpdateCheck();
 startSelfBackup(app);
 startHealth();
 startScheduler();

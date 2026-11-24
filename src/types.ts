@@ -427,3 +427,5 @@ export interface Upkeep {
   problems: { key: string; level: 'error' | 'warn'; title: string; text: string }[];
 }
 export interface TileSuggestion { kind: string; label: string; category: string; url: string; port: number; guest: { vmid: number; name: string }; name: string }
+
+export interface VersionInfo { enabled: boolean; current: string; latest: string | null; url: string | null; available: boolean; checkedAt: number | null; error: string | null }

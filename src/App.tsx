@@ -154,6 +154,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const features = useQuery(api.features, [], 0);
+  const version = useQuery(api.version, [], 3_600_000);
   const NAV = useMemo(() => ALL_NAV.filter((n) => !n.feature || features.data?.[n.feature]), [features.data]);
   const GROUPS = useMemo(() => [...new Set(NAV.map((n) => n.group))], [NAV]);
   const [tick, setTick] = useState(0);
@@ -286,6 +287,11 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
           </header>
 
           <main className="content" key={`${parts.join('/')}|${sel.cluster}|${sel.node}`}>
+            {role === 'admin' && version.data?.available && (
+              <div className="callout warn" role="status" style={{ marginBottom: 16 }}>
+                <Icon name="info" size={16} /><span><b>homedash {version.data.latest} is available</b> (you run {version.data.current}). Open the container console in Proxmox and run <code>update</code>.{version.data.url && <> <a className="link" href={version.data.url} target="_blank" rel="noopener noreferrer">What changed</a></>}</span>
+              </div>
+            )}
             {page === 'overview' && <Overview />}
             {page === 'node' && <Node tab={parts[1]} />}
             {page === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}

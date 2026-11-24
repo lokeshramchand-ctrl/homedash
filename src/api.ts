@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, HaState, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
+  AppConfig, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -210,6 +210,7 @@ export const api = {
   query: (query: string, start: number, end: number, step: number) =>
     post<PromResult>('/metrics/query', { query, start, end, step }),
   tiles: () => get<Tile[]>('/tiles'),
+  version: () => get<VersionInfo>('/version'),
   pref: (key: string) => get<{ value: unknown }>(`/prefs/${key}`),
   setPref: (key: string, value: unknown) => put<{ ok: boolean }>(`/prefs/${key}`, { value }),
   tileCatalog: () => get<TileCatalog>('/tiles/catalog'),
