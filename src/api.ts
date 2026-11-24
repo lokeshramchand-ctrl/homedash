@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
+  AppConfig, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -209,6 +209,8 @@ export const api = {
   panels: (uid: string) => get<GrafanaPanel[]>(`/grafana/panels/${encodeURIComponent(uid)}`),
   query: (query: string, start: number, end: number, step: number) =>
     post<PromResult>('/metrics/query', { query, start, end, step }),
+  tiles: () => get<Tile[]>('/tiles'),
+  refreshTile: (id: string) => post<Tile>(`/tiles/${encodeURIComponent(id)}/refresh`),
   monitors: () => get<KumaMonitor[]>('/kuma/monitors'),
   incidents: () => get<KumaIncident[]>('/kuma/incidents'),
   logSummary: () => get<LogSummary>('/logs/summary'),

@@ -1563,3 +1563,15 @@ a.stat:hover .stat-ic { background: var(--signal-soft); color: var(--signal); bo
 .node-meters { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 14px; flex: 1 1 360px; }
 .node-meters small { display: block; margin-bottom: 4px; }
 @media (max-width: 720px) { .picker { order: 3; width: 100%; } .picker-sel select { max-width: 110px; } .node-meters { grid-template-columns: 1fr; flex-basis: 100%; } }
+
+/* Service tiles */
+.svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.svc-group { margin: 20px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+.svc-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.svc-title { display: flex; flex-direction: column; min-width: 0; } .svc-title b { font-weight: 500; letter-spacing: -.02em; } .svc-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px 14px; margin: 14px 0 4px; }
+.svc-stats dt { font-size: 11px; color: var(--muted); } .svc-stats dd { margin: 2px 0 0; font-size: 17px; letter-spacing: -.02em; }
+.svc-stats .tone-warn dd { color: var(--amber, #c27a16); } .svc-stats .tone-bad dd { color: var(--red, #ed272e); }
+.svc-err { margin: 12px 0 0; color: var(--red, #ed272e); }
+.svc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.svc-down { border-color: var(--red, #ed272e); }

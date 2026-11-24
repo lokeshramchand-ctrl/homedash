@@ -141,6 +141,38 @@ function clusterConfigs(): ClusterCfg[] {
     };
   });
 }
+/** A status tile (Services page): one read-only integration polled in the background. See tiles.ts. */
+export interface TileCfg {
+  id: string; kind: 'docker' | 'portainer' | 'pihole' | 'npm' | 'jellyfin' | 'homeassistant' | 'http'; name: string;
+  url: string; publicUrl: string; group: string; token: string; username: string; password: string; insecureTls: boolean;
+  pollSeconds: number; path: string; stats: { label: string; path: string }[];
+}
+const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'http'];
+function tileConfigs(): TileCfg[] {
+  const raw = env('TILES');
+  if (!raw) return [];
+  let list: Record<string, unknown>[];
+  try { list = JSON.parse(raw) as Record<string, unknown>[]; } catch { throw new Error('TILES must be a JSON array'); }
+  const seen = new Set<string>();
+  const out: TileCfg[] = [];
+  list.forEach((t, i) => {
+    const kind = String(t.kind ?? '').toLowerCase();
+    const url = trim(String(t.url ?? ''));
+    if (!TILE_KINDS.includes(kind) || !/^https?:\/\/[^\s/]+/.test(url)) { console.warn(`TILES[${i}]: needs a known kind and an http(s) url, skipped`); return; }
+    const name = String(t.name ?? kind).trim().slice(0, 40) || kind;
+    let id = slug(String(t.id ?? name)) || `tile-${i + 1}`;
+    if (seen.has(id)) id = `${id}-${i + 1}`;
+    seen.add(id);
+    out.push({
+      id, kind: kind as TileCfg['kind'], name, url, publicUrl: trim(String(t.public_url ?? '')), group: String(t.group ?? '').trim().slice(0, 30),
+      token: String(t.token ?? ''), username: String(t.username ?? ''), password: String(t.password ?? ''), insecureTls: t.insecure_tls === true || t.insecure_tls === 'true',
+      pollSeconds: Math.min(Math.max(Number(t.poll_seconds ?? 60) || 60, 15), 3600), path: String(t.path ?? '/'),
+      stats: (Array.isArray(t.stats) ? (t.stats as Record<string, unknown>[]) : []).map((s) => ({ label: String(s?.label ?? '').slice(0, 30), path: String(s?.path ?? '') })).filter((s) => s.label && s.path),
+    });
+  });
+  return out;
+}
+
 const CL = clusterConfigs();
 
 export const cfg = {
@@ -297,6 +329,8 @@ export const cfg = {
 
   // Access control beyond roles: teams, group mapping, SCIM, approvals, API tokens, passkeys. See access.ts.
   access: accessConfig(),
+
+  tiles: tileConfigs(),
 
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)
 };

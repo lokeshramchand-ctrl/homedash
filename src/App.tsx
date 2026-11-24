@@ -32,6 +32,7 @@ import { select, selectedCluster, selectedNode } from './selection';
 import Crowdsec from './pages/Crowdsec';
 import Data from './pages/Data';
 import Llama from './pages/Llama';
+import Tiles from './pages/Tiles';
 import type { AppConfig, Features, Guest } from './types';
 
 const ALL_NAV: { id: string; label: string; icon: IconName; group: string; feature?: keyof Features }[] = [
@@ -53,13 +54,14 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
   { id: 'logs', label: 'Logs', icon: 'list', group: 'Monitoring' },
   { id: 'crowdsec', label: 'CrowdSec', icon: 'lock', group: 'Security', feature: 'crowdsec' },
   { id: 'data', label: 'Data', icon: 'disk', group: 'Services', feature: 'data' },
+  { id: 'tiles', label: 'Service tiles', icon: 'grid', group: 'Services', feature: 'tiles' },
   { id: 'llama', label: 'LLM server', icon: 'cpu', group: 'Services', feature: 'llama' },
   { id: 'access', label: 'Access', icon: 'settings', group: 'Settings' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', group: 'Settings' },
 ];
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
-  crowdsec: 'Search…', access: 'Search…', data: 'Search…', llama: 'Search…',
+  crowdsec: 'Search…', tiles: 'Search services…', access: 'Search…', data: 'Search…', llama: 'Search…',
   cluster: 'Search…', scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
@@ -305,6 +307,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {page === 'crowdsec' && <Crowdsec />}
             {page === 'data' && <Data parts={parts.slice(1)} />}
             {page === 'llama' && <Llama />}
+            {page === 'tiles' && <Tiles />}
             {!NAV.some((n) => n.id === page) && <Overview />}
           </main>
         </div>

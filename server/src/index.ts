@@ -38,6 +38,7 @@ import { registerNode } from './node.js';
 import { registerWindows } from './windows.js';
 import { registerNotify, startNotify } from './notify.js';
 import { registerOidc } from './oidc.js';
+import { registerTiles, startTiles } from './tiles.js';
 import { registerOverview } from './overview.js';
 
 const app = Fastify({
@@ -115,6 +116,7 @@ registerFeatures(app);
 registerLoki(app);
 registerCrowdsec(app);
 registerCluster(app);
+registerTiles(app);
 registerQemu(app);
 registerVmOps(app);
 registerLlama(app);
@@ -134,6 +136,7 @@ startKuma(app);
 startEvents(app);
 startNotify(app);
 startGpuWatch(app);
+startTiles(app);
 startHealth();
 startScheduler();
 

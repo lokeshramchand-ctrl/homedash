@@ -24,6 +24,7 @@ export function features() {
     approvals: cfg.access.approvals.actions.length > 0,
     nginxManage: cfg.nginxManage,
     metrics: !!cfg.metricsToken,
+    tiles: cfg.tiles.length > 0,
   };
 }
 

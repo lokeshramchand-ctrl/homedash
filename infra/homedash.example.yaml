@@ -263,3 +263,34 @@ addons:
 # Any variable the settings above do not cover can be set verbatim (see server/.env.example):
 # env:
 #   LOG_LEVEL: debug
+
+# Service tiles: read-only status cards for the other things in your lab (Services page).
+# kinds: docker, portainer, pihole, npm, jellyfin, homeassistant, http
+# A tile that is unreachable for two checks in a row raises one "services" alert, and one when it recovers.
+# tiles:
+#   - kind: docker                      # Docker Engine API, ideally through a read-only socket proxy
+#     name: Docker
+#     url: http://192.0.2.10:2375
+#   - kind: pihole                      # v6: password (an app password works); v5: token
+#     url: http://192.0.2.2
+#     password: ${PIHOLE_PASSWORD}
+#     public_url: http://pihole.lan/admin
+#   - kind: portainer
+#     url: https://192.0.2.10:9443
+#     token: ${PORTAINER_TOKEN}
+#     insecure_tls: true
+#   - kind: npm                         # Nginx Proxy Manager: proxy host counts and certificate expiry
+#     url: http://192.0.2.11:81
+#     username: ${NPM_EMAIL}
+#     password: ${NPM_PASSWORD}
+#   - kind: jellyfin                    # token (API key) is optional; adds streams and library counts
+#     url: http://192.0.2.12:8096
+#     token: ${JELLYFIN_KEY}
+#   - kind: homeassistant               # long-lived access token
+#     url: http://192.0.2.13:8123
+#     token: ${HA_TOKEN}
+#   - kind: http                        # anything that answers JSON; pick the numbers to show
+#     name: Router
+#     url: http://192.0.2.1
+#     path: /status
+#     stats: [ { label: Clients, path: data.clients } ]

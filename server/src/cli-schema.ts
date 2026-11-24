@@ -86,10 +86,11 @@ const DS_FIELDS: [string, string][] = [
 ];
 /** Actions access.approvals.actions may name (the server's own list is checked against this in the tests). */
 export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot.delete', 'guest.stop', 'guest.migrate', 'vm.clone', 'nginx.delete', 'nginx.change'];
+export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'http'];
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
-export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'env'];
+export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'tiles', 'env'];
 
 /**
  * Secrets the tool creates itself and then keeps (generated.env), so re-applying never rotates them.
@@ -192,6 +193,41 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
     env.PVE_CLUSTERS = JSON.stringify(out);
   }
 
+  // Status tiles: each entry becomes one element of TILES (JSON). Secrets are expanded here, like proxmox.clusters.
+  if (isSet(y.tiles)) {
+    if (!Array.isArray(y.tiles)) problems.push('tiles: must be a list');
+    else {
+      const ids = new Set<string>();
+      const out = (y.tiles as Yaml[]).map((t, i) => {
+        const where = `tiles[${i}]`;
+        const kind = String(t?.kind ?? '');
+        if (!TILE_KINDS.includes(kind)) problems.push(`${where}: kind must be one of ${TILE_KINDS.join(', ')}`);
+        const url = expand(String(t?.url ?? ''), secrets);
+        if (!/^https?:\/\/[^\s/]+/.test(url.text)) problems.push(`${where}: url must be an http(s) URL`);
+        const id = String(t?.id ?? t?.name ?? kind).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        if (ids.has(id)) problems.push(`${where}: duplicate id "${id}" (give each tile of the same kind its own id or name)`);
+        ids.add(id);
+        const o: Yaml = { id, kind, name: t?.name ?? kind, url: url.text };
+        for (const k of ['public_url', 'group', 'token', 'username', 'password', 'path']) {
+          if (!isSet(t?.[k])) continue;
+          const e = expand(String(t[k]), secrets);
+          for (const m of [...e.missing]) problems.push(`${where}.${k}: \${${m}} is not defined in secrets.env or the environment`);
+          o[k] = e.text;
+        }
+        for (const m of url.missing) problems.push(`${where}.url: \${${m}} is not defined in secrets.env or the environment`);
+        if (t?.insecure_tls === true) o.insecure_tls = true;
+        if (isSet(t?.poll_seconds)) { if (!(Number(t.poll_seconds) >= 15)) problems.push(`${where}.poll_seconds: at least 15`); o.poll_seconds = Number(t.poll_seconds); }
+        if (Array.isArray(t?.stats)) o.stats = t.stats;
+        if (kind === 'portainer' && !isSet(t?.token)) problems.push(`${where}: portainer needs an access token (token)`);
+        if (kind === 'npm' && !(isSet(t?.username) && isSet(t?.password))) problems.push(`${where}: npm needs username (e-mail) and password`);
+        if (kind === 'homeassistant' && !isSet(t?.token)) problems.push(`${where}: homeassistant needs a long-lived access token (token)`);
+        if (kind === 'http' && isSet(t?.stats) && !Array.isArray(t.stats)) problems.push(`${where}.stats: must be a list of { label, path }`);
+        return o;
+      });
+      env.TILES = JSON.stringify(out);
+    }
+  }
+
   // Teams, group mapping, approvals, SCIM, passkeys
   const acc = (y.access ?? {}) as Yaml;
   const teams = (acc.teams && typeof acc.teams === 'object' ? acc.teams : {}) as Yaml;
@@ -273,6 +309,7 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'passkeys', label: 'Passkeys (WebAuthn)', on: has('WEBAUTHN_RP_ID', 'WEBAUTHN_ORIGIN'), hint: 'auth.passkeys.rp_id, origin' },
     { id: 'mfa', label: 'Two-step sign-in (TOTP)', on: (env.MFA_KEY ?? '').length >= 32, hint: 'auth.mfa.enabled: true' },
     { id: 'metrics', label: 'Prometheus /metrics endpoint', on: has('METRICS_TOKEN'), hint: 'metrics.enabled (default true)' },
+    { id: 'tiles', label: 'Service tiles', on: !!env.TILES && env.TILES !== '[]', hint: 'tiles: [{ kind, url, ... }]' },
     { id: 'nginx', label: 'nginx site manager', on: env.NGINX_MANAGE === 'true', hint: 'nginx.manage: true' },
   ];
 }

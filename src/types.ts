@@ -353,7 +353,7 @@ export interface CsAlert {
 /** Which optional integrations the server has switched on (GET /api/features). */
 export interface Features {
   proxmox: boolean; grafana: boolean; kuma: boolean; loki: boolean; crowdsec: boolean; data: boolean; llama: boolean; gpuWatch: boolean;
-  ntfy: boolean; alerts: boolean; clusters?: boolean; passkeys: boolean; scim: boolean; teams: boolean; approvals: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
+  ntfy: boolean; alerts: boolean; clusters?: boolean; passkeys: boolean; scim: boolean; teams: boolean; approvals: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean; tiles?: boolean;
 }
 
 // ---- access: teams, tokens, approvals, passkeys, users ----
@@ -395,4 +395,11 @@ export interface ClustersResponse { current: string; defaultNode: string; cluste
 export interface MigrateInfo {
   vmid: number; name: string; node: string; type: 'lxc' | 'qemu'; running: boolean; mode: 'live' | 'restart' | 'offline';
   localDisks: { volid: string; size: number }[]; localResources: string[]; targets: { name: string; online: boolean; allowed: boolean; reason: string | null }[];
+}
+
+// ---- service tiles (Docker, Pi-hole, Jellyfin, ...) ----
+export interface TileStat { label: string; value: string | number; tone?: 'ok' | 'warn' | 'bad' }
+export interface Tile {
+  id: string; kind: string; name: string; link?: string; group?: string;
+  state: 'ok' | 'warn' | 'down' | 'pending'; summary?: string; stats?: TileStat[]; ms: number | null; at: number | null; error?: string;
 }
