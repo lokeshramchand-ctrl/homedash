@@ -77,6 +77,7 @@ const ROWS: Row[] = [
   R('access.approvals', 'ACCESS_APPROVALS', json), R('access.token_max_days', 'API_TOKEN_MAX_DAYS'), R('access.token_default_days', 'API_TOKEN_DEFAULT_DAYS'),
   R('scim.token', 'SCIM_TOKEN'),
   R('auth.passkeys.rp_id', 'WEBAUTHN_RP_ID'), R('auth.passkeys.origin', 'WEBAUTHN_ORIGIN'), R('auth.passkeys.rp_name', 'WEBAUTHN_RP_NAME'),
+  R('audit.syslog', 'AUDIT_SYSLOG'), R('audit.webhook_url', 'AUDIT_WEBHOOK_URL'), R('audit.webhook_secret', 'AUDIT_WEBHOOK_SECRET'), R('audit.format', 'AUDIT_FORMAT'),
   R('nginx.manage', 'NGINX_MANAGE'), R('nginx.sites_dir', 'NGINX_SITES_DIR'), R('nginx.binary', 'NGINX_BIN'),
 ];
 
@@ -90,7 +91,7 @@ export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', '
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
-export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'tiles', 'env'];
+export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'tiles', 'audit', 'env'];
 
 /**
  * Secrets the tool creates itself and then keeps (generated.env), so re-applying never rotates them.
@@ -255,6 +256,9 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
     } catch { problems.push('auth.passkeys: both rp_id and origin (https://host) are required'); }
   }
 
+  if (env.AUDIT_SYSLOG && !/^(udp|tcp):\/\/[^\s/:]+(:\d+)?$/.test(env.AUDIT_SYSLOG)) problems.push('audit.syslog: use udp://host:514 or tcp://host:514');
+  if (env.AUDIT_FORMAT && !['json', 'cef'].includes(env.AUDIT_FORMAT)) problems.push('audit.format: json or cef');
+
   // Required pairs
   const pair = (a: string, b: string, label: string) => {
     if (env[a] && !env[b]) problems.push(`${label}: ${a} is set but ${b} is missing`);
@@ -270,7 +274,7 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
   if (env.PAGERDUTY_ROUTING_KEY && env.PAGERDUTY_ROUTING_KEY.length < 20) problems.push('pagerduty.routing_key: expected the 32-character Events API v2 integration key');
   if (env.OPSGENIE_REGION && !['us', 'eu'].includes(env.OPSGENIE_REGION.toLowerCase())) problems.push('opsgenie.region: use us or eu');
   if (env.SMTP_PORT && !/^\d{1,5}$/.test(env.SMTP_PORT)) problems.push('SMTP_PORT: must be a port number');
-  for (const k of ['GRAFANA_URL', 'KUMA_URL', 'LOKI_URL', 'PROMETHEUS_URL', 'NTFY_URL', 'AI_BASE_URL', 'GOTIFY_URL', 'APPRISE_URL', 'WEBHOOK_URL', 'LLAMA_URL', 'LLAMA_AGENT_URL', 'GPU_AGENT_URL']) {
+  for (const k of ['GRAFANA_URL', 'KUMA_URL', 'LOKI_URL', 'PROMETHEUS_URL', 'NTFY_URL', 'AI_BASE_URL', 'GOTIFY_URL', 'APPRISE_URL', 'WEBHOOK_URL', 'AUDIT_WEBHOOK_URL', 'LLAMA_URL', 'LLAMA_AGENT_URL', 'GPU_AGENT_URL']) {
     if (env[k] && !/^https?:\/\/[^\s/]+/.test(env[k])) problems.push(`${k}: "${env[k]}" is not an http(s) URL`);
   }
   return { env, problems, notes };
@@ -310,6 +314,7 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'mfa', label: 'Two-step sign-in (TOTP)', on: (env.MFA_KEY ?? '').length >= 32, hint: 'auth.mfa.enabled: true' },
     { id: 'metrics', label: 'Prometheus /metrics endpoint', on: has('METRICS_TOKEN'), hint: 'metrics.enabled (default true)' },
     { id: 'tiles', label: 'Service tiles', on: !!env.TILES && env.TILES !== '[]', hint: 'tiles: [{ kind, url, ... }]' },
+    { id: 'auditexport', label: 'Audit export (SIEM)', on: has('AUDIT_SYSLOG') || has('AUDIT_WEBHOOK_URL'), hint: 'audit.syslog or audit.webhook_url' },
     { id: 'nginx', label: 'nginx site manager', on: env.NGINX_MANAGE === 'true', hint: 'nginx.manage: true' },
   ];
 }

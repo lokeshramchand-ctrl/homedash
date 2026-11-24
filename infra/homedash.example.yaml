@@ -294,3 +294,11 @@ addons:
 #     url: http://192.0.2.1
 #     path: /status
 #     stats: [ { label: Clients, path: data.clients } ]
+
+# Audit trail: every action row is hash-chained (tamper-evident). GET /api/admin/audit/verify checks the chain,
+# GET /api/admin/audit/export?after=<id>&format=json|cef downloads it. These push each new row to a collector as it happens.
+# audit:
+#   syslog: udp://192.0.2.50:514       # or tcp://host:514 (RFC 5424, facility authpriv)
+#   format: cef                        # json (default) or cef
+#   webhook_url: https://siem.example/ingest
+#   webhook_secret: ${AUDIT_WEBHOOK_SECRET}   # adds X-Homedash-Signature: sha256=<hmac of the body>

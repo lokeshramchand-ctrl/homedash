@@ -25,6 +25,7 @@ export function features() {
     nginxManage: cfg.nginxManage,
     metrics: !!cfg.metricsToken,
     tiles: cfg.tiles.length > 0,
+    auditExport: !!(cfg.auditExport.syslog || cfg.auditExport.webhookUrl),
   };
 }
 

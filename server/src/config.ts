@@ -332,6 +332,13 @@ export const cfg = {
 
   tiles: tileConfigs(),
 
+  // Audit trail export to a SIEM / log collector (see auditlog.ts). Rows are always hash-chained; these only add push targets.
+  auditExport: {
+    syslog: env('AUDIT_SYSLOG'), // udp://host:514 or tcp://host:514 (RFC 5424)
+    webhookUrl: env('AUDIT_WEBHOOK_URL'), webhookSecret: env('AUDIT_WEBHOOK_SECRET'), // optional HMAC-SHA256 in X-Homedash-Signature
+    format: env('AUDIT_FORMAT', 'json').toLowerCase() === 'cef' ? 'cef' as const : 'json' as const,
+  },
+
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)
 };
 

@@ -1,3 +1,5 @@
+import { chainHash } from './auditchain.js';
+import type { ChainFields } from './auditchain.js';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -138,6 +140,8 @@ function migrate() {
   add('scenes', 'cluster', 'TEXT');
   add('schedules', 'cluster', 'TEXT');
   add('audit', 'cluster', 'TEXT');
+  add('audit', 'prev_hash', 'TEXT');
+  add('audit', 'hash', 'TEXT');
   add('users', 'teams', 'TEXT');
   add('users', 'groups', 'TEXT');
   add('users', 'disabled', 'INTEGER NOT NULL DEFAULT 0');
@@ -291,9 +295,26 @@ export function bumpAttempts(key: string, windowMs: number) {
 export const clearAttempts = (key: string) => { d.prepare('DELETE FROM login_attempts WHERE key = ?').run(key); };
 
 // ---- audit log ---------------------------------------------------------------------------------
+/** Called after every audit row (SIEM sinks); set by auditlog.ts. */
+let auditSink: ((row: ChainFields & { id: number; prev_hash: string; hash: string }) => void) | null = null;
+export const setAuditSink = (fn: typeof auditSink) => { auditSink = fn; };
+
 export function insertAudit(a: AuditRow) {
-  d.prepare('INSERT INTO audit (ts, user, ip, vmid, name, action, result, task_id, reason, cluster) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(a.ts, a.user, a.ip, a.vmid, a.name ?? null, a.action, a.result, a.taskId ?? null, a.reason ?? null, multiCluster() ? currentCluster().id : null);
+  const f: ChainFields = {
+    ts: a.ts, user: a.user, ip: a.ip, vmid: a.vmid, name: a.name ?? null, action: a.action, result: a.result,
+    task_id: a.taskId ?? null, reason: a.reason ?? null, cluster: multiCluster() ? currentCluster().id : null,
+  };
+  // Synchronous SQLite in one process: nothing can slip in between reading the head and writing the row.
+  const prev = (d.prepare('SELECT hash FROM audit WHERE hash IS NOT NULL ORDER BY id DESC LIMIT 1').get() as { hash: string } | undefined)?.hash ?? '';
+  const hash = chainHash(prev, f);
+  const r = d.prepare('INSERT INTO audit (ts, user, ip, vmid, name, action, result, task_id, reason, cluster, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(f.ts, f.user, f.ip, f.vmid, f.name, f.action, f.result, f.task_id, f.reason, f.cluster, prev, hash);
+  try { auditSink?.({ ...f, id: Number(r.lastInsertRowid), prev_hash: prev, hash }); } catch { /* a broken sink must not break the action */ }
+}
+
+/** Audit rows in id order, optionally from an id on (for verification and export). */
+export function auditRows(afterId = 0, limit = 1_000_000): (ChainFields & { id: number; prev_hash: string | null; hash: string | null })[] {
+  return d.prepare('SELECT id, ts, user, ip, vmid, name, action, result, task_id, reason, cluster, prev_hash, hash FROM audit WHERE id > ? ORDER BY id LIMIT ?').all(afterId, limit) as never;
 }
 
 export const hasRecentAccepted = (vmid: number, sinceMs: number): boolean =>
