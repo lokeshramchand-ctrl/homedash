@@ -37,7 +37,16 @@ function map(type: 'lxc' | 'qemu', r: any): Guest {
   };
 }
 
+// Short-lived cache: every guest route resolves its vmid through the list, and Proxmox is slow.
+let listCache: { at: number; rows: Guest[] } | null = null;
+let listInflight: Promise<Guest[]> | null = null;
+export const invalidateGuests = () => { listCache = null; };
 export async function listGuests(): Promise<Guest[]> {
+  if (listCache && Date.now() - listCache.at < 1500) return listCache.rows;
+  listInflight ??= fetchGuests().then((rows) => { listCache = { at: Date.now(), rows }; return rows; }).finally(() => { listInflight = null; });
+  return listInflight;
+}
+async function fetchGuests(): Promise<Guest[]> {
   const n = encodeURIComponent(cfg.pveNode);
   const [lxc, qemu] = await Promise.all([pve<any[]>('GET', `/nodes/${n}/lxc`), pve<any[]>('GET', `/nodes/${n}/qemu`)]);
   return [...lxc.map((r) => map('lxc', r)), ...qemu.filter((r) => !r.template).map((r) => map('qemu', r))]
@@ -63,6 +72,7 @@ export async function performGuestAction(vmid: number, action: Action, user: str
   }
   try {
     const taskId = await pve<string>('POST', `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${vmid}/status/${action}`);
+    invalidateGuests();
     insertAudit({ ...base, name: g.name, result: 'accepted', taskId });
     return taskId;
   } catch (e) {
@@ -77,13 +87,13 @@ const parseVmid = (v: string) => {
   return n;
 };
 
-async function findGuest(v: string): Promise<Guest> {
+export async function findGuest(v: string): Promise<Guest> {
   const vmid = parseVmid(v);
   const g = (await listGuests()).find((x) => x.vmid === vmid);
   if (!g) throw new HttpError(404, 'NOT_FOUND', `Guest ${vmid} does not exist or is not allowed`);
   return g;
 }
-const guestPath = (g: Guest) => `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${g.vmid}`;
+export const guestPath = (g: Guest) => `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${g.vmid}`;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 
 export function registerGuests(app: FastifyInstance) {

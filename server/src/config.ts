@@ -133,6 +133,33 @@ export const cfg = {
     cpuLimit: Number(env('ALERT_CPU', '0.9')), memLimit: Number(env('ALERT_MEM', '0.92')), diskLimit: Number(env('ALERT_DISK', '0.9')),
   },
 
+  // llama.cpp server on the Windows VM: status read directly from llama-server, start/stop/switch via
+  // the control agent (scripts/windows/llama-agent.ps1). See llama.ts.
+  llama: {
+    agentUrl: trim(env('LLAMA_AGENT_URL')), // e.g. http://192.168.1.18:8090
+    agentToken: env('LLAMA_AGENT_TOKEN'),
+    url: trim(env('LLAMA_URL')), // llama-server itself, e.g. http://192.168.1.18:8081
+    apiKey: env('LLAMA_API_KEY'), // only if llama-server runs with --api-key
+    publicUrl: trim(env('LLAMA_PUBLIC_URL')), // shown as a link only
+    vmid: Number(env('LLAMA_VMID', '0')),
+  },
+
+  // Mining guard: alert when the GPU stays busy while llama-server has no requests (see gpuwatch.ts).
+  gpuWatch: {
+    agentUrl: trim(env('GPU_AGENT_URL')), // the agent inside the Windows VM, e.g. http://192.168.1.18:9835
+    agentToken: env('GPU_AGENT_TOKEN'),
+    llamaUrl: trim(env('LLAMA_URL')), // llama-server, read via /slots only, e.g. http://192.168.1.18:8081
+    llamaKey: env('LLAMA_API_KEY'), // only if llama-server runs with --api-key
+    pollMs: Math.max(5_000, Number(env('GPU_WATCH_POLL_MS', '15000'))),
+    utilPct: Number(env('GPU_WATCH_UTIL', '60')), // "high" GPU utilisation, percent
+    minutes: Number(env('GPU_WATCH_MINUTES', '5')), // how long it must stay high and unexplained
+    blindMinutes: Number(env('GPU_WATCH_BLIND_MINUTES', '10')), // agent silent this long while the VM runs = warn
+    vmid: Number(env('GPU_WATCH_VMID', '0')),
+    // Processes whose GPU use is expected (desktop, browser). llama-server is deliberately not here.
+    allow: env('GPU_WATCH_ALLOW', 'dwm.exe,explorer.exe,chrome.exe,msedge.exe,firefox.exe,obs64.exe,steamwebhelper.exe,discord.exe,System')
+      .split(',').map((s) => s.trim()).filter(Boolean),
+  },
+
   ai: {
     baseUrl: trim(env('AI_BASE_URL')), // OpenAI-compatible base, e.g. http://192.168.1.x:11434/v1 (Ollama) or https://api.openai.com/v1
     apiKey: env('AI_API_KEY'), // empty for most local servers (Ollama/LM Studio)
@@ -164,3 +191,5 @@ export const aiConfigured = () => !!(cfg.ai.baseUrl && cfg.ai.model);
 export const lokiConfigured = () => !!cfg.lokiUrl;
 export const crowdsecConfigured = () => !!cfg.crowdsecSnapshot;
 export const dataConfigured = () => cfg.datasourceKey.length >= 16;
+export const llamaConfigured = () => !!(cfg.llama.url || cfg.llama.agentUrl);
+export const gpuWatchConfigured = () => !!cfg.gpuWatch.agentUrl;

@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS datasource_audit (
   result TEXT NOT NULL, ms INTEGER, rows INTEGER, expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ds_audit_ts ON datasource_audit (ts DESC);
+CREATE TABLE IF NOT EXISTS gpu_samples (minute INTEGER PRIMARY KEY, util REAL NOT NULL, busy INTEGER NOT NULL, top TEXT, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS oidc_states (id TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL);
 `;
 
@@ -88,7 +89,7 @@ export const closeDb = () => { try { d?.close(); } catch { /* already closed */ 
 /** Replaces the TTL indexes a document database would use. */
 function purgeExpired() {
   const now = Date.now();
-  for (const t of ['sessions', 'login_attempts', 'kuma_samples', 'system_events', 'oidc_states', 'datasource_audit']) {
+  for (const t of ['sessions', 'login_attempts', 'kuma_samples', 'system_events', 'oidc_states', 'datasource_audit', 'gpu_samples']) {
     d.prepare(`DELETE FROM ${t} WHERE expires_at < ?`).run(now);
   }
 }
@@ -271,3 +272,12 @@ export const saveSchedule = (id: number | null, s: Omit<ScheduleRow, 'id' | 'las
 };
 export const deleteSchedule = (id: number) => { d.prepare('DELETE FROM schedules WHERE id = ?').run(id); };
 export const markScheduleRun = (id: number, result: string) => { d.prepare('UPDATE schedules SET last_run = ?, last_result = ? WHERE id = ?').run(Date.now(), result.slice(0, 300), id); };
+
+// ---- GPU samples (one row per minute, peak utilisation) ----------------------------------------
+export const upsertGpuSample = (minute: number, util: number, busy: number, top: string, expiresAt: number) => {
+  d.prepare(`INSERT INTO gpu_samples (minute, util, busy, top, expires_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (minute) DO UPDATE SET util = MAX(util, excluded.util), busy = MAX(busy, excluded.busy), top = excluded.top, expires_at = excluded.expires_at`)
+    .run(minute, util, busy, top, expiresAt);
+};
+export const listGpuSamples = (fromMinute: number, limit: number): { minute: number; util: number; busy: number }[] =>
+  d.prepare('SELECT minute, util, busy FROM gpu_samples WHERE minute >= ? ORDER BY minute LIMIT ?').all(fromMinute, limit) as any;

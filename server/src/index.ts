@@ -5,7 +5,11 @@ import Fastify from 'fastify';
 import { registerAuth } from './auth.js';
 import { registerCrowdsec } from './crowdsec.js';
 import { registerFeatures } from './features.js';
+import { registerGpuWatch, startGpuWatch } from './gpuwatch.js';
+import { registerLlama } from './llama.js';
 import { registerLoki } from './loki.js';
+import { registerQemu } from './qemu.js';
+import { registerVmOps } from './vmops.js';
 import { cfg, dataConfigured } from './config.js';
 import { closeDb, connectDb } from './db.js';
 import { HttpError } from './errors.js';
@@ -94,6 +98,10 @@ registerMetrics(app);
 registerFeatures(app);
 registerLoki(app);
 registerCrowdsec(app);
+registerQemu(app);
+registerVmOps(app);
+registerLlama(app);
+registerGpuWatch(app);
 // The Data manager pulls in the database drivers (optional dependencies), so it is only loaded when switched on.
 let closeData = async () => {};
 if (dataConfigured()) {
@@ -108,6 +116,7 @@ if (cfg.serveDist) await app.register(staticFiles, { root: resolve(cfg.serveDist
 startKuma(app);
 startEvents(app);
 startNotify(app);
+startGpuWatch(app);
 startHealth();
 startScheduler();
 
