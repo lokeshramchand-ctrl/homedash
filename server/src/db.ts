@@ -140,6 +140,7 @@ function migrate() {
   add('scenes', 'cluster', 'TEXT');
   add('schedules', 'cluster', 'TEXT');
   add('audit', 'cluster', 'TEXT');
+  for (const t of ['scenes', 'schedules', 'silences', 'alert_routes']) add(t, 'managed', 'TEXT'); // 'config' = declared in homedash.yaml
   add('audit', 'prev_hash', 'TEXT');
   add('audit', 'hash', 'TEXT');
   add('users', 'teams', 'TEXT');
@@ -604,3 +605,12 @@ export function saveRoute(id: number | null, r: Omit<RouteRow, 'id' | 'position'
   return id;
 }
 export const deleteRoute = (id: number): boolean => Number(d.prepare('DELETE FROM alert_routes WHERE id = ?').run(id).changes) > 0;
+
+// ---- config as code (policy.ts): rows declared in homedash.yaml are marked managed = 'config' ------------------
+export type ManagedTable = 'scenes' | 'schedules' | 'silences' | 'alert_routes';
+export const managedRows = (t: ManagedTable): { id: number; name: string }[] => d.prepare(`SELECT id, name FROM ${t} WHERE managed = 'config'`).all() as never;
+export const unmanagedNameTaken = (t: ManagedTable, name: string): boolean => !!d.prepare(`SELECT 1 FROM ${t} WHERE name = ? AND managed IS NULL`).get(name);
+export const markManaged = (t: ManagedTable, id: number) => { d.prepare(`UPDATE ${t} SET managed = 'config' WHERE id = ?`).run(id); };
+export const isManaged = (t: ManagedTable, id: number): boolean => !!d.prepare(`SELECT 1 FROM ${t} WHERE id = ? AND managed = 'config'`).get(id);
+export const setSceneCluster = (id: number, cluster: string | null) => { d.prepare('UPDATE scenes SET cluster = ? WHERE id = ?').run(cluster, id); };
+export const setScheduleCluster = (id: number, cluster: string | null) => { d.prepare('UPDATE schedules SET cluster = ? WHERE id = ?').run(cluster, id); };

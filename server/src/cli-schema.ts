@@ -1,6 +1,8 @@
 // homedash.yaml -> server environment. One table drives both directions: `apply` renders .env from the YAML and
 // `status` reports which integrations the resulting settings switch on. Unknown YAML keys are reported, not ignored.
 
+import { isEmptyPolicy, normalizePolicy } from './policy-schema.js';
+
 export type Yaml = Record<string, any>;
 export interface Mapped { env: Record<string, string>; problems: string[]; notes: string[] }
 
@@ -87,11 +89,13 @@ const DS_FIELDS: [string, string][] = [
 ];
 /** Actions access.approvals.actions may name (the server's own list is checked against this in the tests). */
 export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot.delete', 'guest.stop', 'guest.migrate', 'vm.clone', 'nginx.delete', 'nginx.change'];
+export const POLICY_CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gpu', 'hardware', 'disks', 'services', 'crowdsec', 'db', 'app', 'auth'];
+export const POLICY_CHANNELS = ['ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie'];
 export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'http'];
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
-export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'tiles', 'audit', 'env'];
+export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'tiles', 'audit', 'policy', 'env'];
 
 /**
  * Secrets the tool creates itself and then keeps (generated.env), so re-applying never rotates them.
@@ -229,6 +233,13 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
     }
   }
 
+  // Config as code: scenes, schedules, alert routes, maintenance windows. Normalised here, applied by the server at start.
+  if (isSet(y.policy)) {
+    const r = normalizePolicy(y.policy, { categories: POLICY_CATEGORIES, channels: POLICY_CHANNELS });
+    for (const p of r.problems) problems.push(p);
+    if (!isEmptyPolicy(r.policy)) env.POLICY = JSON.stringify(r.policy);
+  }
+
   // Teams, group mapping, approvals, SCIM, passkeys
   const acc = (y.access ?? {}) as Yaml;
   const teams = (acc.teams && typeof acc.teams === 'object' ? acc.teams : {}) as Yaml;
@@ -315,6 +326,7 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'metrics', label: 'Prometheus /metrics endpoint', on: has('METRICS_TOKEN'), hint: 'metrics.enabled (default true)' },
     { id: 'tiles', label: 'Service tiles', on: !!env.TILES && env.TILES !== '[]', hint: 'tiles: [{ kind, url, ... }]' },
     { id: 'auditexport', label: 'Audit export (SIEM)', on: has('AUDIT_SYSLOG') || has('AUDIT_WEBHOOK_URL'), hint: 'audit.syslog or audit.webhook_url' },
+    { id: 'policy', label: 'Config as code (scenes, routes, windows)', on: !!env.POLICY, hint: 'policy: { scenes, schedules, alert_routes, maintenance }' },
     { id: 'nginx', label: 'nginx site manager', on: env.NGINX_MANAGE === 'true', hint: 'nginx.manage: true' },
   ];
 }

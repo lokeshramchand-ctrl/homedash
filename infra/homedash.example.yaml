@@ -302,3 +302,22 @@ addons:
 #   format: cef                        # json (default) or cef
 #   webhook_url: https://siem.example/ingest
 #   webhook_secret: ${AUDIT_WEBHOOK_SECRET}   # adds X-Homedash-Signature: sha256=<hmac of the body>
+
+# Config as code: scenes, schedules, alert routes and maintenance windows kept in this file.
+# Items declared here are created, updated and removed to match the file every time the server starts, and are
+# read-only in the UI. Things you create in the UI are never touched (a name clash is skipped with a warning).
+# policy:
+#   scenes:
+#     - name: Movie night
+#       steps:
+#         - { vmid: 101, action: stop }
+#         - { vmid: 105, action: start, wait_seconds: 30 }
+#   schedules:
+#     - { name: Nightly shutdown, scene: Movie night, days: weekdays, time: "23:30" }
+#     - { name: Weekend start, vmid: 101, action: start, days: [sat, sun], time: "08:00" }
+#   alert_routes:
+#     - { name: Page me, min_level: error, categories: [host, guest], channels: [pagerduty] }
+#   maintenance:
+#     - name: Weekly patching
+#       weekly: { days: [sun], start: "22:00", minutes: 120 }
+#       categories: [tasks, guest]

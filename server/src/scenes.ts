@@ -8,6 +8,7 @@ import type { Action } from './guests.js';
 import { pve } from './proxmox.js';
 import { currentCluster, defaultCluster, findCluster, inCluster, nodeOfTask, nodePath } from './clusters.js';
 import { pveConfigured } from './config.js';
+import { assertEditable } from './policy.js';
 
 // A scene is an ordered list of power steps ("stop the media server, wait, start the gaming VM").
 // Schedules run a scene, or one guest action, at a weekday/time in the server's time zone.
@@ -134,9 +135,10 @@ export function registerScenes(app: FastifyInstance) {
   app.put<{ Params: { id: string }; Body: { name?: string; steps?: unknown } }>('/api/scenes/:id', async (req) => {
     const sid = id(req.params.id);
     if (!getScene(sid)) throw new HttpError(404, 'NOT_FOUND', 'Scene not found');
+    assertEditable('scenes', sid);
     return { id: unique(() => saveScene(sid, nameOf(req.body), validateSteps(req.body?.steps), getScene(sid)!.cluster)) };
   });
-  app.delete<{ Params: { id: string } }>('/api/scenes/:id', async (req) => { deleteScene(id(req.params.id)); return { ok: true }; });
+  app.delete<{ Params: { id: string } }>('/api/scenes/:id', async (req) => { const sid = id(req.params.id); assertEditable('scenes', sid); deleteScene(sid); return { ok: true }; });
   app.post<{ Params: { id: string } }>('/api/scenes/:id/run', async (req) => {
     if (!pveConfigured()) throw new HttpError(503, 'NOT_CONFIGURED', 'Proxmox is not configured on the server');
     const scene = getScene(id(req.params.id));
@@ -147,6 +149,6 @@ export function registerScenes(app: FastifyInstance) {
 
   app.get('/api/schedules', async () => listSchedules().filter((s) => mine(s.cluster)));
   app.post<{ Body: unknown }>('/api/schedules', async (req) => ({ id: saveSchedule(null, { ...validateSchedule(req.body), cluster: currentCluster().id }) }));
-  app.put<{ Params: { id: string }; Body: unknown }>('/api/schedules/:id', async (req) => ({ id: saveSchedule(id(req.params.id), validateSchedule(req.body)) }));
-  app.delete<{ Params: { id: string } }>('/api/schedules/:id', async (req) => { deleteSchedule(id(req.params.id)); return { ok: true }; });
+  app.put<{ Params: { id: string }; Body: unknown }>('/api/schedules/:id', async (req) => { const sid = id(req.params.id); assertEditable('schedules', sid); return { id: saveSchedule(sid, validateSchedule(req.body)) }; });
+  app.delete<{ Params: { id: string } }>('/api/schedules/:id', async (req) => { const sid = id(req.params.id); assertEditable('schedules', sid); deleteSchedule(sid); return { ok: true }; });
 }

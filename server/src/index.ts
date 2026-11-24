@@ -39,6 +39,7 @@ import { registerWindows } from './windows.js';
 import { registerNotify, startNotify } from './notify.js';
 import { registerOidc } from './oidc.js';
 import { registerAuditLog } from './auditlog.js';
+import { applyConfiguredPolicy } from './policy.js';
 import { registerTiles, startTiles } from './tiles.js';
 import { registerOverview } from './overview.js';
 
@@ -88,6 +89,7 @@ app.addHook('onRequest', async (req, reply) => {
 });
 
 connectDb();
+applyConfiguredPolicy(app.log);
 await app.register(cookie);
 registerClusterContext(app); // first: auth and scope checks must already see the selected cluster
 registerRateLimit(app);

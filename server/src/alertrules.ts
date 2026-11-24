@@ -10,6 +10,7 @@ import { deleteRoute, deleteSilence, listRoutes, listSilences, saveRoute, saveSi
 import type { RouteRow, SilenceRow, WeeklyWindow } from './db.js';
 import { HttpError } from './errors.js';
 import { logEvent } from './events.js';
+import { assertEditable } from './policy.js';
 
 export type Level = 'info' | 'warn' | 'error';
 const RANK: Record<Level, number> = { info: 0, warn: 1, error: 2 };
@@ -103,10 +104,12 @@ export function registerAlertRules(app: FastifyInstance, categories: readonly st
     const id = Number(req.params.id);
     const cur = listSilences().find((x) => x.id === id);
     if (!cur) throw new HttpError(404, 'NOT_FOUND', 'No such silence');
+    assertEditable('silences', id);
     saveSilence(id, { ...silenceBody(req.body ?? {}, cur.createdBy) });
     return { id };
   });
   app.delete<{ Params: { id: string } }>('/api/notify/silences/:id', async (req) => {
+    assertEditable('silences', Number(req.params.id));
     if (!deleteSilence(Number(req.params.id))) throw new HttpError(404, 'NOT_FOUND', 'No such silence');
     logEvent('info', 'auth', `${req.user!.username} removed alert silence #${req.params.id}`, { ip: req.ip });
     return { ok: true };
@@ -132,10 +135,12 @@ export function registerAlertRules(app: FastifyInstance, categories: readonly st
   app.put<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/notify/routes/:id', async (req) => {
     const id = Number(req.params.id);
     if (!listRoutes().some((x) => x.id === id)) throw new HttpError(404, 'NOT_FOUND', 'No such route');
+    assertEditable('alert_routes', id);
     saveRoute(id, routeBody(req.body ?? {}));
     return { id };
   });
   app.delete<{ Params: { id: string } }>('/api/notify/routes/:id', async (req) => {
+    assertEditable('alert_routes', Number(req.params.id));
     if (!deleteRoute(Number(req.params.id))) throw new HttpError(404, 'NOT_FOUND', 'No such route');
     logEvent('info', 'auth', `${req.user!.username} removed alert route #${req.params.id}`, { ip: req.ip });
     return { ok: true };
