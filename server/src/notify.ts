@@ -1,6 +1,7 @@
 // Push alerts to ntfy. Fed by logEvent() (every warn/error and recovery) plus a watcher for
 // host resources, failed Proxmox tasks, disk health and stopped PVE services.
 import type { FastifyInstance } from 'fastify';
+import { crowdsecWatch } from './crowdsec.js';
 import { cfg, ntfyConfigured, pveConfigured } from './config.js';
 import { getState, setState } from './db.js';
 import type { EventRow } from './db.js';
@@ -9,7 +10,7 @@ import { recentHardwareErrors } from './diagnostics.js';
 import { logEvent } from './events.js';
 import { pve } from './proxmox.js';
 
-export const CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gpu', 'hardware', 'disks', 'services', 'db', 'app', 'auth'] as const;
+export const CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gpu', 'hardware', 'disks', 'services', 'crowdsec', 'db', 'app', 'auth'] as const;
 type Category = (typeof CATEGORIES)[number];
 interface Settings { enabled: boolean; categories: Record<Category, boolean>; recoveries: boolean; mutedUntil: string | null }
 const DEFAULTS: Settings = { enabled: true, categories: Object.fromEntries(CATEGORIES.map((c) => [c, true])) as Record<Category, boolean>, recoveries: true, mutedUntil: null };
@@ -148,12 +149,47 @@ async function watch() {
   }
 }
 
+// CrowdSec: broken pieces (bouncer or engine silent, snapshot stale) and every new local ban.
+const csRaised = new Map<string, string>();
+const csSeenBans = new Set<number>();
+let csFirst = true;
+async function watchCrowdsec() {
+  const w = await crowdsecWatch();
+  if (w === null) return;
+  const now = new Set(w.problems.map((p) => p.key));
+  for (const p of w.problems) {
+    if (csRaised.has(p.key)) continue;
+    csRaised.set(p.key, p.title);
+    logEvent(p.level === 'error' ? 'error' : 'warn', 'host', `${p.title}: ${p.text}`);
+    alert('crowdsec', p.level, p.title, p.text, `cs|${p.key}`);
+  }
+  for (const [key, title] of [...csRaised]) {
+    if (now.has(key)) continue;
+    csRaised.delete(key);
+    logEvent('info', 'host', `CrowdSec recovered: ${title}`);
+    alert('crowdsec', 'info', `Recovered · ${title}`, 'CrowdSec reports this is fine again', `cs|${key}|ok`);
+  }
+  // The first look only remembers the bans that already exist, so a restart does not replay them.
+  for (const b of w.bans) {
+    if (csSeenBans.has(b.id)) continue;
+    csSeenBans.add(b.id);
+    if (csFirst) continue;
+    const mins = Math.round(b.remainingSec / 60);
+    alert('crowdsec', 'warn', `CrowdSec banned ${b.ip}`, `${b.scenario.replace('crowdsecurity/', '')}${b.country ? ` from ${b.country}` : ''}${b.asName ? ` (${b.asName})` : ''}, blocked for ${mins >= 120 ? `${Math.round(mins / 60)} h` : `${mins} min`}`, `csban|${b.id}`);
+  }
+  csFirst = false;
+}
+
 export function startNotify(app: FastifyInstance) {
   void loadSettings();
   if (!ntfyConfigured()) { app.log.warn('ntfy not configured; push alerts disabled'); return; }
-  const t = setInterval(() => { watch().catch((e) => app.log.warn({ err: (e as Error).message }, 'notify watch failed')); }, 60_000);
+  const t = setInterval(() => {
+    watch().catch((e) => app.log.warn({ err: (e as Error).message }, 'notify watch failed'));
+    watchCrowdsec().catch((e) => app.log.warn({ err: (e as Error).message }, 'crowdsec watch failed'));
+  }, 60_000);
   t.unref();
   setTimeout(() => void watch().catch(() => {}), 5_000).unref();
+  setTimeout(() => void watchCrowdsec().catch(() => {}), 25_000).unref();
 }
 
 export function registerNotify(app: FastifyInstance) {

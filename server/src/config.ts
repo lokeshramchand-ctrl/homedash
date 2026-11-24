@@ -54,6 +54,20 @@ export const cfg = {
   grafanaToken: env('GRAFANA_TOKEN'),
   grafanaDsUid: env('GRAFANA_DS_UID'), // Prometheus datasource uid
 
+  promUrl: trim(env('PROMETHEUS_URL')), // optional: query Prometheus directly (CrowdSec history, engine counters)
+
+  // CrowdSec: the engine's state is a JSON snapshot written by the homedash-crowdsec-snapshot timer (infra/crowdsec).
+  // Empty = the CrowdSec page is off.
+  crowdsecSnapshot: env('CROWDSEC_SNAPSHOT'),
+  crowdsec: {
+    centralName: env('CROWDSEC_CENTRAL_NAME', 'crowdsec'), // Prometheus instance_name label of the central engine
+    hostName: env('CROWDSEC_HOST_NAME', 'pve-host'), // machine / instance_name of the Proxmox host's own engine
+  },
+
+  // Loki (read-only): the Logs page queries it live, nothing is copied into SQLite. Empty = off.
+  lokiUrl: trim(env('LOKI_URL')),
+  lokiPublicUrl: trim(env('LOKI_PUBLIC_URL') || env('LOKI_URL')),
+
   kumaUrl: trim(env('KUMA_URL')),
   kumaApiKey: env('KUMA_API_KEY'),
   kumaPollMs: Number(env('KUMA_POLL_MS', '60000')),
@@ -107,3 +121,5 @@ export const oidcConfigured = () => !!(cfg.oidc.issuer && cfg.oidc.clientId && c
 export const kumaConfigured = () => !!(cfg.kumaUrl && cfg.kumaApiKey);
 export const ntfyConfigured = () => !!(cfg.ntfy.url && cfg.ntfy.topic);
 export const aiConfigured = () => !!(cfg.ai.baseUrl && cfg.ai.model);
+export const lokiConfigured = () => !!cfg.lokiUrl;
+export const crowdsecConfigured = () => !!cfg.crowdsecSnapshot;
