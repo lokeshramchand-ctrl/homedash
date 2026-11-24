@@ -92,11 +92,24 @@ Secrets are written as `${NAME}` in the YAML and kept in `/etc/homedash/secrets.
 | LLM server and GPU guard | `llama:`, `gpu_watch:` | LLM server, GPU alerts |
 | Single sign-on | `auth.oidc:` (Keycloak, Authentik, Authelia, Zitadel, Entra ID, Google, Okta...) | login button, roles from `admin_users` / `default_role` |
 | Two-step sign-in | `auth.mfa.enabled` | TOTP with recovery codes |
+| Passkeys | `auth.passkeys` (needs HTTPS) | passwordless sign-in that counts as both factors |
+| Teams | `access.teams`, `access.group_teams` | people see and act on their own guests only |
+| Group sync and SCIM | `access.group_roles`, `scim.token` | roles, teams and deactivation follow your identity provider |
+| Four-eyes approvals | `access.approvals.actions` | risky actions need a second administrator |
+| API tokens | always on (Access page) | scoped, expiring tokens for scripts and the mobile app |
 | Alerts | `ntfy:`, `gotify:`, `discord:`, `slack:`, `telegram:`, `email:`, `apprise:`, `webhook:` (any number) | Notifications: per-channel level filter, test button, delivery history |
 | Ask AI | `ai:` | log helper |
 | nginx | `nginx:` incl. `sites_dir`, `conf_dir`, `homedash`, `sites` | Nginx page; vhosts rendered for homedash and your services |
 
 Roles are `viewer` (read), `operator` (power, snapshots, scenes) and `admin` (databases, logs, nginx changes, host power). `npm run create-user -- <name> <role>` sets one; `--reset-2fa` is the lock-out escape.
+
+### Access control
+
+- **Roles** (`viewer`, `operator`, `admin`) apply everywhere. **Teams** narrow that: a person in a team sees only the guests it lists (by id range or Proxmox tag) and gets no host-wide pages (overview, nginx, databases, logs). People without a team are unaffected.
+- **Group sync.** With OIDC, `access.group_roles` and `access.group_teams` turn the provider's groups into a role and teams at every sign-in. With **SCIM** (`scim.token`, base URL `/scim/v2`) the provider also creates, updates and deactivates accounts; deactivating ends their sessions and revokes their API tokens at once. A user in no mapped group gets `auth.oidc.default_role`, and `admin_users` always wins. The SCIM `userName` must equal the user's OIDC `preferred_username` (or e-mail) so the first sign-in adopts the provisioned account.
+- **API tokens** (Access page): shown once, stored as a hash, never more than their owner's role, scoped like their owner, expire (90 days by default), revoke any time. A token cannot create tokens or change account security.
+- **Approvals.** For the actions you list, the first request is refused and queued; a *different* administrator approves it on the Access page; the requester then repeats the identical request (the page has a Run button) and it runs once. Approvals expire and are bound to the requester and the exact request body.
+- **Passkeys** need HTTPS and `auth.passkeys.rp_id` / `origin`. A passkey is verified with the device's biometric or PIN, so it replaces both the password and the code.
 
 ### Add-ons around homedash
 

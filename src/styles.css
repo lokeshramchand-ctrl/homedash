@@ -1544,3 +1544,12 @@ a.stat:hover .stat-ic { background: var(--signal-soft); color: var(--signal); bo
 .chan-foot { margin: 14px 0 0; }
 .chips-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 @media (max-width: 720px) { .chan-main { gap: 8px; } .chan-level { flex: 1 1 100%; } }
+
+/* ---------- access page ---------- */
+.appr { align-items: flex-start; }
+.appr-act { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.appr-act .input { flex: 1 1 200px; max-width: 320px; height: 34px; }
+.person { align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.chip-toggle { height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border-2); background: none; color: var(--muted); font-size: 12px; font-weight: 500; cursor: pointer; }
+.chip-toggle.on { background: var(--signal); border-color: var(--signal); color: #fff; }
+.chip-toggle:disabled { opacity: .55; cursor: default; }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Access control: teams (per-guest scope by id range or tag), group-to-role/team mapping from OIDC groups and SCIM 2.0 (Users and Groups), live deactivation, personal API tokens, four-eyes approvals for risky actions, passkeys (WebAuthn), and an Access page with people, sessions, tokens and approvals.
 - Alert channels: Gotify, Discord, Slack, Telegram, e-mail (SMTP), Apprise and a JSON webhook next to ntfy. Alerts fan out to every channel that is set up; each channel has its own on/off, minimum level and test button on the Notifications page, and every delivery is recorded per channel.
 - `homedash.yaml` and `homedash-config` (validate, apply, status): one file switches integrations on and renders `.env`, nginx vhosts and add-on files (Alloy, Loki, Prometheus, CrowdSec snapshot, Grafana provisioning). nginx directories are configurable.
 - Sign-in with any OpenID Connect provider (`OIDC_*`; `KEYCLOAK_*` still works), role mapping for SSO users.

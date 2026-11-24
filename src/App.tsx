@@ -25,6 +25,7 @@ import Login from './pages/Login';
 import Nginx from './pages/Nginx';
 import Overview from './pages/Overview';
 import { TwoStepGate, TwoStepSheet } from './components/TwoStep';
+import Access from './pages/Access';
 import Crowdsec from './pages/Crowdsec';
 import Data from './pages/Data';
 import Llama from './pages/Llama';
@@ -49,11 +50,12 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
   { id: 'crowdsec', label: 'CrowdSec', icon: 'lock', group: 'Security', feature: 'crowdsec' },
   { id: 'data', label: 'Data', icon: 'disk', group: 'Services', feature: 'data' },
   { id: 'llama', label: 'LLM server', icon: 'cpu', group: 'Services', feature: 'llama' },
+  { id: 'access', label: 'Access', icon: 'settings', group: 'Settings' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', group: 'Settings' },
 ];
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
-  crowdsec: 'Search…', data: 'Search…', llama: 'Search…',
+  crowdsec: 'Search…', access: 'Search…', data: 'Search…', llama: 'Search…',
   scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
@@ -120,6 +122,17 @@ const ROLE_LABEL: Record<string, string> = { admin: 'Administrator', operator: '
 
 function Shell({ user, role, config, onLogout }: { user: string; role: string; config: AppConfig; onLogout: () => void }) {
   const [twoStep, setTwoStep] = useState(false);
+  const toast = useToast();
+  // A risky action that needs a second person's approval: tell the user where to follow it up.
+  useEffect(() => {
+    const f = (e: Event) => {
+      const a = (e as CustomEvent<{ summary?: string; status?: string }>).detail;
+      toast.success(a?.status === 'approved' ? 'Approved: open Access > Approvals and press Run' : `Waiting for approval: ${a?.summary ?? 'this action'}. It is listed under Access > Approvals.`);
+    };
+    window.addEventListener('approval:required', f);
+    return () => window.removeEventListener('approval:required', f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const features = useQuery(api.features, [], 0);
   const NAV = useMemo(() => ALL_NAV.filter((n) => !n.feature || features.data?.[n.feature]), [features.data]);
   const GROUPS = useMemo(() => [...new Set(NAV.map((n) => n.group))], [NAV]);
@@ -268,6 +281,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {page === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
             {page === 'logs' && <Logs />}
             {page === 'notifications' && <Notifications />}
+            {page === 'access' && <Access role={role} user={user} />}
             {page === 'crowdsec' && <Crowdsec />}
             {page === 'data' && <Data parts={parts.slice(1)} />}
             {page === 'llama' && <Llama />}

@@ -51,6 +51,34 @@ auth:
     # admin_users: [alice]                      # these users get admin
     # default_role: viewer                      # everyone else: viewer | operator | admin
     # label: Sign in with SSO
+  # passkeys:                          # sign in with a fingerprint, face, PIN or security key (needs HTTPS)
+  #   rp_id: dash.example.com          # the domain people type
+  #   origin: https://dash.example.com
+  #   rp_name: homedash
+
+# ---------------------------------------------------------------- who may do what
+# access:
+#   teams:                             # a team limits its members to certain guests; no team = the role applies everywhere
+#     web:
+#       vmids: ["100-120", 205]        # ids and ranges
+#       tags: [lab]                    # and/or Proxmox tags
+#     db:
+#       vmids: ["150-159"]
+#   group_roles:                       # identity-provider groups (OIDC claims or SCIM) -> role. Highest match wins.
+#     admin: [homedash-admins]
+#     operator: [ops]
+#     viewer: [staff]
+#   group_teams:                       # group -> team(s)
+#     web-team: [web]
+#     db-team: [db]
+#   approvals:                         # four-eyes: these actions need a second administrator
+#     actions: [host.shutdown, snapshot.rollback, nginx.delete]   # or ["*"]; see the list on the Access page
+#     ttl_minutes: 30
+#     allow_self: false                # true lets one admin approve their own request (single-admin labs)
+#   token_default_days: 90
+#   token_max_days: 365
+# scim:                                # lets Okta / Entra ID / Authentik provision people: base URL <dashboard>/scim/v2
+#   token: ${SCIM_TOKEN}               # 24+ characters: openssl rand -hex 24
 
 # ---------------------------------------------------------------- monitoring integrations
 # grafana:

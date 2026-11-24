@@ -42,7 +42,7 @@ import type {
   LlamaState,
   LlamaStatus,
   LogAnalytics,
-  LoginResult, Features, ChannelPref, NotifyDelivery,
+  LoginResult, Features, ChannelPref, NotifyDelivery, AccessRole, ApiTokens, Approvals, ApprovalItem, PasskeyItem, AdminUser, AdminSession, AccessInfo,
   LokiHistogram,
   LokiLine,
   LokiStatus,
@@ -61,20 +61,23 @@ import type {
 export class ApiError extends Error {
   status: number;
   code: string;
-  constructor(message: string, status: number, code: string) {
+  /** Extra fields from the server's error body, e.g. the approval request behind APPROVAL_REQUIRED. */
+  data: Record<string, unknown>;
+  constructor(message: string, status: number, code: string, data: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function req<T>(method: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch('/api' + path, {
       method,
       credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'homedash', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { 'X-Requested-With': 'homedash', ...extra, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -89,7 +92,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     try { data = JSON.parse(text); } catch { /* non-JSON body */ }
   }
   if (!res.ok) {
-    throw new ApiError(data?.error || res.statusText || 'Request failed', res.status, data?.code || 'ERROR');
+    if (data?.code === 'APPROVAL_REQUIRED' || data?.code === 'APPROVAL_GRANTED') window.dispatchEvent(new CustomEvent('approval:required', { detail: data.approval }));
+    throw new ApiError(data?.error || res.statusText || 'Request failed', res.status, data?.code || 'ERROR', data ?? {});
   }
   return data as T;
 }
@@ -244,6 +248,26 @@ export const api = {
   lokiLabelValues: (name: string) => get<string[]>(`/loki/labels/${encodeURIComponent(name)}/values`),
   lokiQuery: (query: string, since: string) => get<LokiLine[]>('/loki/query' + qs({ query, since, limit: '500' })),
   lokiHistogram: (query: string, since: string) => get<LokiHistogram>('/loki/histogram' + qs({ query, since })),
+  // access
+  tokens: (all = false) => get<ApiTokens>('/auth/tokens' + (all ? '?all=1' : '')),
+  tokenCreate: (b: { name: string; days: number; role: AccessRole }) => post<{ id: number; token: string; name: string; role: AccessRole; expiresAt: string }>('/auth/tokens', b),
+  tokenRevoke: (id: number) => del<{ ok: boolean }>(`/auth/tokens/${id}`),
+  approvals: () => get<Approvals>('/approvals'),
+  approvalDecide: (id: string, verdict: 'approve' | 'reject', note?: string) => post<ApprovalItem>(`/approvals/${id}/${verdict}`, note ? { note } : {}),
+  /** Repeats the original request of an approved action, with the approval attached. */
+  approvalRun: (a: ApprovalItem) => req<unknown>(a.method, a.path.replace(/^\/api/, ''), a.body === null ? undefined : a.body, { 'X-Approval-Id': a.id }),
+  passkeys: () => get<PasskeyItem[]>('/auth/passkeys'),
+  passkeyRegisterOptions: () => post<{ challengeId: string; options: unknown }>('/auth/passkeys/register/options'),
+  passkeyRegisterVerify: (b: { challengeId: string; response: unknown; name: string }) => post<{ ok: boolean }>('/auth/passkeys/register/verify', b),
+  passkeyDelete: (id: number) => del<{ ok: boolean }>(`/auth/passkeys/${id}`),
+  passkeyConfig: () => get<{ enabled: boolean }>('/auth/passkey/config'),
+  passkeyLoginOptions: () => post<{ challengeId: string; options: unknown }>('/auth/passkey/login/options'),
+  passkeyLoginVerify: (b: { challengeId: string; response: unknown }) => post<{ username: string }>('/auth/passkey/login/verify', b),
+  adminUsers: () => get<AdminUser[]>('/admin/users'),
+  adminUserPatch: (id: number, b: { role?: AccessRole; teams?: string[]; disabled?: boolean }) => req<{ ok: boolean }>('PATCH', `/admin/users/${id}`, b),
+  adminSessions: () => get<AdminSession[]>('/admin/sessions'),
+  adminSessionEnd: (id: number) => del<{ ok: boolean }>(`/admin/sessions/${id}`),
+  adminAccess: () => get<AccessInfo>('/admin/access'),
 };
 
 /** Optional runtime config shipped next to index.html (see API_NOTES.md). */

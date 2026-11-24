@@ -349,5 +349,28 @@ export interface CsAlert {
 /** Which optional integrations the server has switched on (GET /api/features). */
 export interface Features {
   proxmox: boolean; grafana: boolean; kuma: boolean; loki: boolean; crowdsec: boolean; data: boolean; llama: boolean; gpuWatch: boolean;
-  ntfy: boolean; alerts: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
+  ntfy: boolean; alerts: boolean; passkeys: boolean; scim: boolean; teams: boolean; approvals: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
+}
+
+// ---- access: teams, tokens, approvals, passkeys, users ----
+export type AccessRole = 'viewer' | 'operator' | 'admin';
+export interface ApiTokenRow { id: number; name: string; prefix: string; role: AccessRole; owner: string; createdAt: string; expiresAt: string; lastUsedAt: string | null; lastIp: string | null; status: 'active' | 'expired' | 'revoked' }
+export interface ApiTokens { maxDays: number; defaultDays: number; tokens: ApiTokenRow[] }
+export interface ApprovalItem {
+  id: string; action: string; summary: string; method: string; path: string; body: unknown; requestedBy: string; createdAt: string; expiresAt: string;
+  status: 'pending' | 'approved' | 'rejected' | 'used' | 'expired'; decidedBy: string | null; decidedAt: string | null; note: string | null;
+}
+export interface Approvals { policy: { actions: string[]; ttlMinutes: number; allowSelf: boolean; known: string[] }; canDecide: boolean; items: ApprovalItem[] }
+export interface PasskeyItem { id: number; name: string; createdAt: string; lastUsedAt: string | null }
+export interface AdminUser {
+  id: number; username: string; role: AccessRole; teams: string[]; groups: string[]; disabled: boolean; source: 'local' | 'sso' | 'scim'; managed: boolean;
+  mfa: boolean; passkeys: number; lastLoginAt: string | null; lastLoginIp: string | null; sessions: number; tokens: number;
+}
+export interface AdminSession { id: number; username: string; createdAt: string; lastSeenAt: string; expiresAt: string; ip: string | null; userAgent: string | null; pending: boolean; current: boolean }
+export interface AccessInfo {
+  teams: { name: string; vmids: string[]; tags: string[] }[]; groupRoles: Record<string, string[]>; groupTeams: Record<string, string[]>;
+  oidc: { configured: boolean; defaultRole: string; adminUsers: number };
+  scim: { enabled: boolean; endpoint: string; groups: { name: string; members: number }[] };
+  passkeys: { enabled: boolean; rpId: string };
+  approvals: { actions: string[]; ttlMinutes: number; allowSelf: boolean }; tokens: { maxDays: number; defaultDays: number };
 }

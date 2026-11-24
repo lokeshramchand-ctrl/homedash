@@ -1,3 +1,4 @@
+import { startAuthentication } from '@simplewebauthn/browser';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
@@ -24,9 +25,11 @@ export default function Login({ onLogin, initialStep = 'password' }: { onLogin: 
   const [codeText, setCodeText] = useState('');
   const [recovery, setRecovery] = useState(false);
   const [sso, setSso] = useState<{ enabled: boolean; label: string }>({ enabled: false, label: '' });
+  const [passkeys, setPasskeys] = useState(false);
 
   useEffect(() => {
     api.ssoConfig().then(setSso).catch(() => { /* password login still works */ });
+    api.passkeyConfig().then((c) => setPasskeys(c.enabled && !!window.PublicKeyCredential)).catch(() => { /* optional */ });
     const code = new URLSearchParams(location.search).get('sso_error');
     if (code) {
       setError(SSO_ERRORS[code] ?? 'Single sign-on failed');
@@ -50,6 +53,22 @@ export default function Login({ onLogin, initialStep = 'password' }: { onLogin: 
     }
   }
 
+  async function passkeyLogin() {
+    setBusy(true);
+    setError('');
+    try {
+      const { challengeId, options } = await api.passkeyLoginOptions();
+      const response = await startAuthentication({ optionsJSON: options as never });
+      const r = await api.passkeyLoginVerify({ challengeId, response });
+      onLogin(r.username);
+    } catch (err) {
+      const e = err as { name?: string; message: string };
+      // The user closing the browser prompt is not an error worth showing.
+      if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function submitCode(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -99,6 +118,12 @@ export default function Login({ onLogin, initialStep = 'password' }: { onLogin: 
             <label>Username<input className="input" autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required /></label>
             <label>Password<input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
             <button className="btn btn-primary btn-lg" disabled={busy}>{busy ? <Spinner /> : null}Sign in</button>
+            {passkeys && (
+              <>
+                <div className="login-or muted small"><span>or</span></div>
+                <button type="button" className="btn btn-lg" disabled={busy} onClick={passkeyLogin}><Icon name="lock" size={16} />Sign in with a passkey</button>
+              </>
+            )}
             {sso.enabled && (
               <>
                 <div className="login-or muted small"><span>or</span></div>
