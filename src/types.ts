@@ -426,3 +426,4 @@ export interface Upkeep {
   pools: { name: string; health: string; size: number; free: number; frag: number | null }[] | null;
   problems: { key: string; level: 'error' | 'warn'; title: string; text: string }[];
 }
+export interface TileSuggestion { kind: string; label: string; category: string; url: string; port: number; guest: { vmid: number; name: string }; name: string }

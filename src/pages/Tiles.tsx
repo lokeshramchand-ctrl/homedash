@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Async, Badge, Card, Icon, PageHeader } from '../components/ui';
+import { Async, Badge, Card, Icon, Modal, PageHeader, Spinner } from '../components/ui';
 import type { Tone } from '../components/ui';
 import { timeAgo } from '../format';
 import { useQuery, useSearch, useToast } from '../hooks';
-import { ServiceForm, emptyDraft } from '../components/ServiceForm';
+import { Logo, ServiceForm, emptyDraft } from '../components/ServiceForm';
 import type { Draft } from '../components/ServiceForm';
-import type { Tile, TileCatalog, TileAdmin } from '../types';
+import type { Tile, TileCatalog, TileAdmin, TileSuggestion } from '../types';
 
 const TONE: Record<Tile['state'], Tone> = { ok: 'green', warn: 'amber', down: 'red', pending: 'gray' };
 const LABEL: Record<Tile['state'], string> = { ok: 'Healthy', warn: 'Attention', down: 'Unreachable', pending: 'Checking…' };
@@ -50,6 +50,7 @@ export default function Tiles({ role }: { role: string }) {
   const cat = useQuery<TileCatalog>(api.tileCatalog, [], 0);
   const adm = useQuery<TileAdmin | null>(() => (isAdmin ? api.tileAdmin() : Promise.resolve(null)), [isAdmin], 0);
   const [form, setForm] = useState<Draft | null>(null);
+  const [finder, setFinder] = useState(false);
   const { q: search } = useSearch();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
@@ -73,8 +74,12 @@ export default function Tiles({ role }: { role: string }) {
   return (
     <>
       <PageHeader title="Service tiles" sub="Status of the other services in your lab." actions={isAdmin ? (
+        <>
+        <button className="btn" disabled={!canEdit} onClick={() => setFinder(true)}><Icon name="search" size={15} />Find services</button>
         <button className="btn btn-primary" disabled={!canEdit} title={canEdit ? undefined : 'Set a secret key first: run homedash-config apply'} onClick={() => setForm(emptyDraft())}><Icon name="plus" size={15} />Add service</button>
+        </>
       ) : undefined} />
+      {finder && <Finder onClose={() => setFinder(false)} onPick={(s) => { setFinder(false); setForm({ ...emptyDraft(s.kind, s.url), name: s.name }); }} />}
       {form && cat.data && <ServiceForm catalog={cat.data} draft={form} onClose={() => setForm(null)} onSaved={() => { q.reload(); adm.reload(); }} />}
       <Async q={q} rows={4} h={140} isEmpty={(d) => d.length === 0} empty={{ title: 'No services yet', hint: isAdmin ? 'Use Add service to watch Pi-hole, Jellyfin, Docker and more.' : 'An administrator can add services here.' }}>
         {(list) => {
@@ -102,5 +107,31 @@ export default function Tiles({ role }: { role: string }) {
         }}
       </Async>
     </>
+  );
+}
+
+/** Scans the running guests for services homedash knows how to watch. */
+function Finder({ onClose, onPick }: { onClose: () => void; onPick: (s: TileSuggestion) => void }) {
+  const [res, setRes] = useState<{ scanned: number; found: TileSuggestion[] } | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => { api.discoverTiles().then(setRes).catch((e) => setErr((e as Error).message)); }, []);
+  return (
+    <Modal title="Find services" wide onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {!res && !err && <p className="muted"><Spinner size={14} /> Asking your running guests what they host…</p>}
+      {err && <div className="callout err" role="alert"><Icon name="alert" size={16} /><span>{err}</span></div>}
+      {res && res.found.length === 0 && <p className="muted">Looked at {res.scanned} address{res.scanned === 1 ? '' : 'es'} and found nothing new. Services on unusual ports can be added by hand.</p>}
+      {res && res.found.length > 0 && (
+        <>
+          <p className="muted small">Found on {res.scanned} address{res.scanned === 1 ? '' : 'es'}. Pick one to add it; you will be asked for any API key it needs.</p>
+          <div className="stack-sm">
+            {res.found.map((f) => (
+              <button key={f.url} className="kind-pick" style={{ width: '100%' }} onClick={() => onPick(f)}>
+                <Logo kind={f.kind} label={f.label} /><span style={{ flex: 1 }}><b>{f.label}</b><br /><small className="muted">on {f.guest.name} (#{f.guest.vmid}) · {f.url.replace(/^https?:\/\//, '')}</small></span><Icon name="plus" size={15} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
