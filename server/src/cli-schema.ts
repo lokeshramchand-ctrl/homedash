@@ -1,6 +1,7 @@
 // homedash.yaml -> server environment. One table drives both directions: `apply` renders .env from the YAML and
 // `status` reports which integrations the resulting settings switch on. Unknown YAML keys are reported, not ignored.
 
+import { KINDS, TILE_KIND_IDS, missingFields } from './tile-kinds.js';
 import { isEmptyPolicy, normalizePolicy } from './policy-schema.js';
 
 export type Yaml = Record<string, any>;
@@ -92,7 +93,7 @@ const DS_FIELDS: [string, string][] = [
 export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot.delete', 'guest.stop', 'guest.migrate', 'vm.clone', 'nginx.delete', 'nginx.change'];
 export const POLICY_CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gpu', 'hardware', 'disks', 'services', 'crowdsec', 'db', 'app', 'auth'];
 export const POLICY_CHANNELS = ['ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie'];
-export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'pbs', 'http'];
+export const TILE_KINDS = TILE_KIND_IDS;
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
@@ -209,12 +210,12 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
         const kind = String(t?.kind ?? '');
         if (!TILE_KINDS.includes(kind)) problems.push(`${where}: kind must be one of ${TILE_KINDS.join(', ')}`);
         const url = expand(String(t?.url ?? ''), secrets);
-        if (!/^https?:\/\/[^\s/]+/.test(url.text)) problems.push(`${where}: url must be an http(s) URL`);
+        if (!/^(https?|tcp):\/\/[^\s/]+/.test(url.text)) problems.push(`${where}: url must be an http(s) URL (tcp:// for nut)`);
         const id = String(t?.id ?? t?.name ?? kind).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
         if (ids.has(id)) problems.push(`${where}: duplicate id "${id}" (give each tile of the same kind its own id or name)`);
         ids.add(id);
         const o: Yaml = { id, kind, name: t?.name ?? kind, url: url.text };
-        for (const k of ['public_url', 'group', 'token', 'username', 'password', 'path']) {
+        for (const k of ['public_url', 'group', 'token', 'username', 'password', 'path', 'ups']) {
           if (!isSet(t?.[k])) continue;
           const e = expand(String(t[k]), secrets);
           for (const m of [...e.missing]) problems.push(`${where}.${k}: \${${m}} is not defined in secrets.env or the environment`);
@@ -224,10 +225,8 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
         if (t?.insecure_tls === true) o.insecure_tls = true;
         if (isSet(t?.poll_seconds)) { if (!(Number(t.poll_seconds) >= 15)) problems.push(`${where}.poll_seconds: at least 15`); o.poll_seconds = Number(t.poll_seconds); }
         if (Array.isArray(t?.stats)) o.stats = t.stats;
-        if (kind === 'portainer' && !isSet(t?.token)) problems.push(`${where}: portainer needs an access token (token)`);
-        if (kind === 'npm' && !(isSet(t?.username) && isSet(t?.password))) problems.push(`${where}: npm needs username (e-mail) and password`);
-        if (kind === 'pbs' && !isSet(t?.token)) problems.push(`${where}: pbs needs an API token (token: user@pbs!name:secret)`);
-        if (kind === 'homeassistant' && !isSet(t?.token)) problems.push(`${where}: homeassistant needs a long-lived access token (token)`);
+        const miss = missingFields(kind, { token: String(t?.token ?? ''), username: String(t?.username ?? ''), password: String(t?.password ?? ''), ups: String(t?.ups ?? '') });
+        if (miss.length) problems.push(`${where}: ${kind} needs ${miss.join(', ')}${KINDS.find((x) => x.kind === kind)?.hint ? ` (${KINDS.find((x) => x.kind === kind)!.hint})` : ''}`);
         if (kind === 'http' && isSet(t?.stats) && !Array.isArray(t.stats)) problems.push(`${where}.stats: must be a list of { label, path }`);
         return o;
       });
