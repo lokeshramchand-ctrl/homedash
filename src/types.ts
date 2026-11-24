@@ -202,3 +202,148 @@ export interface SceneStep { vmid: number; action: 'start' | 'shutdown' | 'stop'
 export interface Scene { id: number; name: string; steps: SceneStep[] }
 export interface SceneRun { id: string; scene: string; by: string; startedAt: string; finishedAt: string | null; status: 'running' | 'ok' | 'error'; steps: { vmid: number; action: string; status: string; message: string }[] }
 export interface Schedule { id: number; name: string; sceneId: number | null; vmid: number | null; action: string | null; days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null }
+
+// ---- added with the ported pages ----
+export type MfaStep = 'none' | 'required' | 'enroll';
+export interface LoginResult { username: string; mfa: MfaStep }
+export interface MeInfo { username: string; role?: 'viewer' | 'operator' | 'admin'; mfa?: 'enroll' }
+export interface MfaStatus { configured: boolean; required: boolean; enabled: boolean; enabledAt: string | null; recoveryLeft: number }
+export interface LokiStatus { configured: boolean; ready: boolean; publicUrl: string; error: string | null; labels: string[] }
+export interface LokiLine { ts: string; ns: string; line: string; labels: Record<string, string> }
+export interface LokiHistogram { stepSeconds: number; points: { t: string; n: number }[] }
+export interface QemuDisk { key: string; bus: string; storage: string; volume: string; size: string | null; cdrom: boolean; cache: string | null; iothread: boolean; discard: boolean; ssd: boolean; backup: boolean }
+export interface QemuNic { key: string; model: string; mac: string | null; bridge: string | null; vlan: string | null; firewall: boolean; rate: string | null; queues: string | null; linkDown: boolean }
+export interface QemuPci { key: string; device: string; pcie: boolean; xvga: boolean; romBar: boolean; mapping: boolean }
+export interface QemuDevices {
+  machine: string | null; bios: string; cpu: string; sockets: number; cores: number; memoryMb: number; balloonMb: number | null; ostype: string | null; scsihw: string | null;
+  efi: boolean; tpm: boolean; agent: boolean; disks: QemuDisk[]; nics: QemuNic[]; pci: QemuPci[]; usb: { key: string; value: string }[]; other: { key: string; value: string }[];
+  warnings: { severity: 'warn' | 'info'; title: string; advice: string }[];
+}
+export interface Backup { volid: string; storage: string; size: number; time: number; format: string; notes: string; protected: boolean }
+export interface BackupList { storages: string[]; backups: Backup[] }
+export interface LogAnalytics {
+  since: string; stepSeconds: number;
+  logs: {
+    total: number; errors: number; warnings: number; hosts: number;
+    series: { t: string; error: number; warning: number; other: number }[];
+    topHosts: { host: string; lines: number; errors: number }[];
+    topUnits: { unit: string; host: string; errors: number }[];
+  };
+  web: {
+    requests: number; serverErrors: number; clientErrors: number; errorRate: number;
+    series: { t: string; ok: number; redirect: number; client: number; server: number; other: number }[];
+    topVhosts: { vhost: string; requests: number; errors5xx: number; p95: number | null }[];
+  };
+  health: { silent: string[] };
+}
+export interface VmAgent {
+  available: boolean; reason?: string; hostname?: string | null;
+  os?: { name: string | null; version: string | null; build: string | null; arch: string | null } | null;
+  interfaces?: { name: string; mac: string | null; ips: { ip: string; v6: boolean; prefix: number }[] }[];
+  volumes?: { mount: string; type: string; used: number; total: number }[];
+  guestTime?: number | null;
+}
+export interface VmIsos { isos: { volid: string; name: string; size: number; storage: string }[]; drives: { slot: string; volid: string | null }[] }
+export interface VmConfigChange { cores?: number; memoryMb?: number; balloonMb?: number; onboot?: boolean; agent?: boolean; description?: string; name?: string }
+
+// ---- Data manager (/api/data/*) ----
+export type DbKind = string;
+export interface DbKindInfo { kind: DbKind; label: string; defaultPort: number | null; fields: string[]; connect: 'host' | 'uri-or-host' | 'file'; uriExample?: string; databaseHint?: string; databaseLabel?: string }
+export interface DbStatus { configured: boolean; kinds: DbKindInfo[]; sqliteDirs: string[] }
+export interface DbSource {
+  id: string; name: string; kind: DbKind; readOnly: boolean; color?: string; createdAt: string; updatedAt: string;
+  managed?: 'env'; envId?: string; // declared in server .env as DS_<envId>_*; not editable in the UI
+  config: { host?: string; port?: number; database?: string; username?: string; tls?: boolean; tlsInsecure?: boolean; file?: string; uriMasked?: string; hasPassword: boolean; hasCa: boolean; hasToken?: boolean };
+}
+export interface DbInput {
+  name?: string; kind?: DbKind; readOnly?: boolean; host?: string; port?: number | string; database?: string; username?: string; password?: string;
+  uri?: string; tls?: boolean; tlsInsecure?: boolean; ca?: string; file?: string; token?: string; clearPassword?: boolean; clearToken?: boolean;
+}
+export interface DbSearchCaps { label: string; inputHint: string; fields: boolean; params: { name: string; label: string; type: 'number' | 'text' | 'select'; default?: string | number; options?: string[] }[] }
+export interface DbAction { id: string; label: string; danger?: boolean; write: boolean; scope: 'connection' | 'namespace' | 'entity'; confirm?: boolean }
+export interface DbCaps { language: string; search?: DbSearchCaps; actions?: DbAction[]; rowKey?: 'pk-object' | '_id' | 'key'; queryHelp?: string; write: boolean; indexes: boolean; activity: boolean; dropEntity: boolean; importExport: boolean; filterHint: string; entityLabel: string; namespaceLabel: string }
+export interface DbOverview { caps: DbCaps; kind: DbKind; readOnly: boolean; ms: number; version: string }
+export interface DbNamespace { name: string; sizeBytes?: number; entities?: number; note?: string }
+export interface DbEntity { name: string; kind: 'collection' | 'table' | 'view' | 'keys'; rows?: number; sizeBytes?: number; approx?: boolean }
+export interface DbColumn { name: string; type: string; nullable?: boolean; pk?: boolean; default?: string | null; note?: string }
+export interface DbIndex { name: string; columns: string[]; unique?: boolean; primary?: boolean; detail?: string }
+export interface DbDescribe { searchFields?: { name: string; type: string; dim?: number }[]; idFields: string[]; columns: DbColumn[]; indexes: DbIndex[]; stats: Record<string, string | number | boolean | null>; ddl?: string }
+export interface DbPage { columns: string[]; rows: Record<string, unknown>[]; total: number | null; totalApprox?: boolean; nextCursor?: string; hasMore: boolean }
+export interface DbQueryResult { kind: 'rows' | 'value' | 'ok'; columns: string[]; rows: Record<string, unknown>[]; value?: unknown; affected?: number; truncated?: boolean; ms: number; statement?: string }
+export interface DbInfo { summary: Record<string, string | number | null>; sections: Record<string, Record<string, string | number | null>> }
+export interface DbActivity { supported: boolean; sessions: Record<string, unknown>[]; slow?: Record<string, unknown>[]; note?: string }
+export interface DbAuditRow { ts: string; user: string; ip: string; connection?: string; action: string; detail?: string; result: 'ok' | 'refused' | 'error'; ms?: number; rows?: number }
+
+// ---------- llama.cpp server (VM 100) ----------
+export type LlamaState = 'running' | 'loading' | 'starting' | 'stopped' | 'vm-off' | 'agent-offline' | 'unknown' | 'error';
+export interface LlamaSettings {
+  ctx?: number; ngl?: number; parallel?: number; threads?: number; batch?: number; ubatch?: number;
+  flashAttn?: 'auto' | 'on' | 'off'; cacheK?: string; cacheV?: string;
+  alias?: string; vision?: boolean; noMmap?: boolean; jinja?: boolean; extra?: string[];
+}
+export interface LlamaGpu { name: string; memUsedMiB: number | null; memTotalMiB: number | null; util: number | null; tempC: number | null; powerW: number | null; powerLimitW: number | null; driver: string; fanPct: number | null; smClockMHz: number | null }
+export interface LlamaSlot { id: number; nCtx: number | null; busy: boolean; task: number | null; decoded: number | null; remain: number | null; promptTokens: number | null }
+export interface LlamaPoint { ts: number; gpuUtil: number | null; vramMiB: number | null; promptTotal: number | null; genTotal: number | null; busy: number | null }
+export interface LlamaStatus {
+  state: LlamaState;
+  configured: { server: boolean; agent: boolean };
+  lanUrl: string | null; publicUrl: string | null;
+  vm: { vmid: number; name: string; status: string; uptime: number | null } | null;
+  agent: { configured: boolean; reachable: boolean; error: string | null; version: string | null; host: string | null; bootTime: string | null; ramFreeBytes: number | null; ramTotalBytes: number | null; autostart: boolean; serverExists: boolean | null; portOwner: { pid: number; name: string } | null };
+  process: { pid: number | null; started: string | null; ramBytes: number | null; commandLine: string | null; count: number | null } | null;
+  launch: { modelId: string | null; modelName: string | null; modelPath: string | null; settings: LlamaSettings; started: string | null; commandLine: string | null } | null;
+  gpu: { gpus: LlamaGpu[]; apps: { pid: number; name: string; memMiB: number | null }[] } | null;
+  server: {
+    health: 'ok' | 'loading' | 'error' | 'down' | 'unconfigured'; httpStatus: number | null;
+    auth: 'ok' | 'required' | 'rejected';
+    props: { nCtx: number | null; totalSlots: number | null; modelPath: string | null; modelAlias: string | null; buildInfo: string | null; vision: boolean; audio: boolean; chatTemplate: string | null; temperature: number | null; topP: number | null; topK: number | null; nPredict: number | null } | null;
+    slots: LlamaSlot[] | null;
+    metrics: Record<string, number> | null;
+    metricsEnabled: boolean | null;
+    models: string[];
+  };
+  history: LlamaPoint[];
+}
+export interface LlamaModel {
+  id: string; name: string; file: string; path: string; dir: string; size: number | null; modified: string | null;
+  source: 'local' | 'hf'; repo: string | null; mmproj: string | null; mmprojSize: number | null;
+  quant: string | null; params: string | null; mtp: boolean;
+}
+export interface LlamaPreset { id: string; name: string; modelId: string; modelName?: string; settings: LlamaSettings }
+export interface LlamaChatResult {
+  content: string; reasoning: string | null; finish: string | null; model: string | null;
+  usage: { prompt: number | null; completion: number | null };
+  timings: { promptN: number | null; promptMs: number | null; promptPerSec: number | null; genN: number | null; genMs: number | null; genPerSec: number | null; draftN: number | null; draftAccepted: number | null };
+  wallMs: number;
+}
+
+// ---- CrowdSec ----
+export interface CsEngine { id: 'central' | 'host'; name: string; role: string; ok: boolean; detail: string; version: string; capiPullSec: number | null }
+export interface CsBan { id: number; ip: string; scenario: string; type: string; origin: string; remainingSec: number; country: string | null; asName: string | null; createdAt: string; machine: string; events: number }
+export interface CsBouncer { name: string; ip: string; type: string; version: string; revoked: boolean; lastPull: string; os: string; ageSec: number | null }
+export interface CsMachine { name: string; ip: string; version: string; validated: boolean; lastHeartbeat: string; os: string; features: string[]; ageSec: number | null }
+export interface CsOverview {
+  configured: boolean; snapshot: { ageSec: number | null; errors: string[] } | null; prometheus: boolean;
+  engines: CsEngine[];
+  decisions: { local: CsBan[]; localCount: number; community: { reason: string; count: number }[]; communityTotal: number; total: number | null };
+  alerts: {
+    total7d: number; last24h: number; hourly: { t: string; n: number }[]; daily: { t: string; n: number }[];
+    byScenario: { scenario: string; count: number }[]; byCountry: { country: string; count: number }[]; byMachine: { machine: string; count: number }[];
+    topSources: { ip: string; count: number; country: string | null; asName: string | null }[]; gauge: { scenario: string; count: number }[];
+  };
+  bouncers: CsBouncer[]; machines: CsMachine[]; collections: { name: string; status: string; version: string }[];
+  allowlists: { name: string; description: string; items: { value: string; description: string; expiration: string | null }[] }[];
+  acquisition: { source: string; read: number; ok: number; ko: number }[];
+  updatedAt: string;
+}
+export interface CsAlert {
+  id: number; createdAt: string; scenario: string; machine: string; events: number; startAt: string; stopAt: string;
+  ip: string; country: string | null; asName: string | null; asNumber: string | null; range: string | null;
+  decision: { type: string; remainingSec: number; origin: string } | null;
+}
+
+/** Which optional integrations the server has switched on (GET /api/features). */
+export interface Features {
+  proxmox: boolean; grafana: boolean; kuma: boolean; loki: boolean; crowdsec: boolean; data: boolean; llama: boolean; gpuWatch: boolean;
+  ntfy: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
+}

@@ -6,6 +6,7 @@ import { useQuery } from '../hooks';
 import type { Query } from '../hooks';
 import type { LogKind, LogLine, PveTask, Recurring, RrdPoint, Timeframe } from '../types';
 import { LineChart } from './MetricChart';
+import type { ChartKind } from './MetricChart';
 import { Async, Badge, Card, CardHead, Chips, EmptyState, Icon, Modal, Skeleton, Spinner } from './ui';
 import { AskAI, buildPrompt } from './AskAI';
 import type { Tone } from './ui';
@@ -19,8 +20,8 @@ export function TimeframePicker({ value, onChange }: { value: Timeframe; onChang
 }
 
 /** One chart card over RRD rows: each line picks a column (optionally scaled). */
-export function RrdCard({ title, sub, q, lines, unit, max }: {
-  title: string; sub?: string; q: Query<RrdPoint[]>; unit: string; max?: number;
+export function RrdCard({ title, sub, q, lines, unit, max, chart }: {
+  title: string; sub?: string; q: Query<RrdPoint[]>; unit: string; max?: number; chart?: ChartKind;
   lines: { name: string; key: string; scale?: number; div?: string }[];
 }) {
   return (
@@ -31,7 +32,7 @@ export function RrdCard({ title, sub, q, lines, unit, max }: {
           const pts = rows.filter((r) => lines.some((l) => r[l.key] != null));
           if (pts.length < 2) return <EmptyState icon="chart" title="No data yet" hint="Proxmox has not recorded this range." />;
           return (
-            <LineChart unit={unit} height={200} max={max} series={lines.map((l) => ({
+            <LineChart unit={unit} height={180} max={max} chart={chart} series={lines.map((l) => ({
               name: l.name,
               points: pts.map((r) => {
                 const v = (r[l.key] ?? 0) * (l.scale ?? 1);

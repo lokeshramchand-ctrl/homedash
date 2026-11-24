@@ -24,9 +24,13 @@ import Logs from './pages/Logs';
 import Login from './pages/Login';
 import Nginx from './pages/Nginx';
 import Overview from './pages/Overview';
-import type { AppConfig, Guest } from './types';
+import { TwoStepGate, TwoStepSheet } from './components/TwoStep';
+import Crowdsec from './pages/Crowdsec';
+import Data from './pages/Data';
+import Llama from './pages/Llama';
+import type { AppConfig, Features, Guest } from './types';
 
-const NAV: { id: string; label: string; icon: IconName; group: string }[] = [
+const ALL_NAV: { id: string; label: string; icon: IconName; group: string; feature?: keyof Features }[] = [
   { id: 'overview', label: 'Overview', icon: 'grid', group: 'Workspace' },
   { id: 'node', label: 'Node', icon: 'node', group: 'Datacenter' },
   { id: 'guests', label: 'Guests', icon: 'server', group: 'Datacenter' },
@@ -42,11 +46,14 @@ const NAV: { id: string; label: string; icon: IconName; group: string }[] = [
   { id: 'grafana', label: 'Grafana', icon: 'analytics', group: 'Monitoring' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'alert', group: 'Monitoring' },
   { id: 'logs', label: 'Logs', icon: 'list', group: 'Monitoring' },
+  { id: 'crowdsec', label: 'CrowdSec', icon: 'lock', group: 'Security', feature: 'crowdsec' },
+  { id: 'data', label: 'Data', icon: 'disk', group: 'Services', feature: 'data' },
+  { id: 'llama', label: 'LLM server', icon: 'cpu', group: 'Services', feature: 'llama' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', group: 'Settings' },
 ];
-const GROUPS = [...new Set(NAV.map((n) => n.group))];
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
+  crowdsec: 'Search…', data: 'Search…', llama: 'Search…',
   scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
@@ -80,11 +87,14 @@ export default function App() {
 
 function Root() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
+  const [role, setRole] = useState('');
+  const [enroll, setEnroll] = useState(false);
+  const [codeStep, setCodeStep] = useState(false);
   const [config, setConfig] = useState<AppConfig>({});
   const toast = useToast();
 
   useEffect(() => {
-    api.me().then((u) => setUser(u.username)).catch(() => setUser(null));
+    refresh();
     loadConfig().then(setConfig);
     const expired = () => setUser((u) => { if (u) toast.error('Session expired — please sign in again'); return null; });
     window.addEventListener('auth:expired', expired);
@@ -92,12 +102,27 @@ function Root() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // After the first factor (or an SSO redirect) the server says whether a code or enrolment is still needed.
+  function refresh() {
+    api.me()
+      .then((u) => { setRole(u.role ?? ''); setEnroll(u.mfa === 'enroll'); setCodeStep(false); setUser(u.username); })
+      .catch((e) => { setCodeStep((e as { code?: string }).code === 'MFA_REQUIRED'); setUser(null); });
+  }
+
   if (user === undefined) return <div className="boot"><Spinner size={28} /></div>;
-  if (user === null) return <Login onLogin={setUser} />;
-  return <Shell user={user} config={config} onLogout={() => setUser(null)} />;
+  if (user === null) return <Login key={codeStep ? 'code' : 'password'} onLogin={refresh} initialStep={codeStep ? 'code' : 'password'} />;
+  const signOut = () => { api.logout().catch(() => { /* already gone */ }).finally(() => { setEnroll(false); setUser(null); }); };
+  if (enroll) return <TwoStepGate user={user} onDone={refresh} onSignOut={signOut} />;
+  return <Shell user={user} role={role} config={config} onLogout={() => setUser(null)} />;
 }
 
-function Shell({ user, config, onLogout }: { user: string; config: AppConfig; onLogout: () => void }) {
+const ROLE_LABEL: Record<string, string> = { admin: 'Administrator', operator: 'Operator', viewer: 'Viewer' };
+
+function Shell({ user, role, config, onLogout }: { user: string; role: string; config: AppConfig; onLogout: () => void }) {
+  const [twoStep, setTwoStep] = useState(false);
+  const features = useQuery(api.features, [], 0);
+  const NAV = useMemo(() => ALL_NAV.filter((n) => !n.feature || features.data?.[n.feature]), [features.data]);
+  const GROUPS = useMemo(() => [...new Set(NAV.map((n) => n.group))], [NAV]);
   const [tick, setTick] = useState(0);
   const [spin, setSpin] = useState(false);
   const bump = useCallback(() => { setTick((t) => t + 1); setSpin(true); setTimeout(() => setSpin(false), 700); }, []);
@@ -219,7 +244,8 @@ function Shell({ user, config, onLogout }: { user: string; config: AppConfig; on
               </a>
               <div className="me">
                 <Avatar user={user} />
-                <div className="hide-sm"><b>{user}</b><small>Administrator</small></div>
+                <div className="hide-sm"><b>{user}</b><small>{ROLE_LABEL[role] ?? 'Administrator'}</small></div>
+                {features.data?.mfa && <button className="icon-btn" onClick={() => setTwoStep(true)} aria-label="Two-step sign-in" title="Two-step sign-in"><Icon name="lock" size={17} /></button>}
                 <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out"><Icon name="logout" size={17} /></button>
               </div>
             </div>
@@ -242,10 +268,14 @@ function Shell({ user, config, onLogout }: { user: string; config: AppConfig; on
             {page === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
             {page === 'logs' && <Logs />}
             {page === 'notifications' && <Notifications />}
+            {page === 'crowdsec' && <Crowdsec />}
+            {page === 'data' && <Data parts={parts.slice(1)} />}
+            {page === 'llama' && <Llama />}
             {!NAV.some((n) => n.id === page) && <Overview />}
           </main>
         </div>
       </div>
+      {twoStep && <TwoStepSheet user={user} onClose={() => setTwoStep(false)} />}
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
      </SearchCtx.Provider>
     </RefreshCtx.Provider>

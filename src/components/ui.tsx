@@ -266,3 +266,7 @@ export function HeartbeatBar({ beats }: { beats: { time: string; status: string;
     </div>
   );
 }
+
+// Components shared by the ported pages live in ui-more.tsx.
+export { CodeBlock, CopyButton, DocRow, Sheet, Stat } from './ui-more';
+export type { SheetSection } from './ui-more';
