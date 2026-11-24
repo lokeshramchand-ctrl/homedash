@@ -1,0 +1,179 @@
+# homedash.yaml: the one file that switches homedash features on.
+#
+# Edit this file, then run:   homedash-config validate && homedash-config apply --restart
+# `validate` lists which integrations your settings turn on. Anything you leave out stays off.
+#
+# Secrets: write ${NAME} here and put NAME=value in /etc/homedash/secrets.env (mode 600), so this file can be
+# shared or committed. Plain values work too.  Reference: https://github.com/lokeshramchand-ctrl/homedash#configuration
+
+server:
+  port: 3000
+  # https: true            # behind an HTTPS reverse proxy: secure cookies, trust the local proxy
+  # secure_cookies: false  # explicit override of the cookie flag
+  # trust_proxy: false     # or a list of proxy IPs allowed to set X-Forwarded-For
+  # session_hours: 12
+  # session_idle_minutes: 120
+  # host_journal: false    # let the Logs page read the host journal (needs the systemd-journal group)
+  # log_retention_days: 90
+  # frame_src: []          # extra origins the UI may embed, e.g. a Kuma status page
+
+# ---------------------------------------------------------------- Proxmox (guests, node, health, backups)
+proxmox:
+  url: https://192.168.1.10:8006
+  node: pve
+  token_id: homedash@pve!ui          # create with tools/pve/create-token.sh
+  token_secret: ${PVE_TOKEN_SECRET}
+  insecure_tls: true                 # self-signed Proxmox certificate
+  # allowed_vmids: []                # empty = every guest on the node
+  # protected_vmids: [100]           # guests homedash may never act on
+  # featured_vmid: 0                 # guest shown as a large card
+  # conflicts: { "100": [101] }      # starting 100 warns when 101 is running (GPU passthrough)
+  # allow_host_power: false          # kill switch for the whole node
+  # backup_max_age_days: 8
+  # snapshot_max_age_days: 30
+  # memory_reserve_mb: 1024
+
+# ---------------------------------------------------------------- sign-in
+auth:
+  mfa:
+    enabled: false                   # TOTP two-step sign-in (key is generated for you)
+    # required: false                # force everyone to enrol before anything else loads
+    # issuer: homedash
+  oidc:                              # any OpenID Connect provider: Keycloak, Authentik, Authelia, Zitadel, Entra ID, Google, Okta...
+    # issuer: https://sso.example.com/realms/home
+    # client_id: homedash
+    # client_secret: ${OIDC_CLIENT_SECRET}
+    # redirect_uri: https://dash.example.com/api/auth/sso/callback
+    # scopes: [openid, profile, email]
+    # allowed_users: [alice, bob@example.com]   # SSO stays OFF unless this or required_role is set
+    # required_role: homedash                   # role or group claim the user must carry
+    # roles_claim: [realm_access.roles, groups] # where roles live in the ID token
+    # admin_users: [alice]                      # these users get admin
+    # default_role: viewer                      # everyone else: viewer | operator | admin
+    # label: Sign in with SSO
+
+# ---------------------------------------------------------------- monitoring integrations
+# grafana:
+#   url: http://192.168.1.14:3000
+#   public_url: https://grafana.example.com   # what the browser opens (defaults to url)
+#   token: ${GRAFANA_TOKEN}                   # read-only service account; Grafana needs allow_embedding = true
+#   datasource_uid: prometheus
+# prometheus:
+#   url: http://192.168.1.14:9090             # CrowdSec history and engine counters
+# kuma:
+#   url: http://192.168.1.15:3001
+#   api_key: ${KUMA_API_KEY}
+# loki:                                       # turns on Logs > Analytics and Loki
+#   url: http://192.168.1.16:3100
+#   public_url: ""
+# crowdsec:                                   # turns on the CrowdSec page (feed it with addons.crowdsec)
+#   snapshot: /var/lib/homedash/crowdsec/state.json
+#   central_name: crowdsec                    # Prometheus instance_name of the central engine
+#   host_name: pve-host                       # machine name of the Proxmox host's own engine
+# ntfy:
+#   url: http://192.168.1.20
+#   topic: homedash-8f3a9c                    # keep it unguessable
+#   token: ${NTFY_TOKEN}
+#   alert_cpu: 0.9
+# ai:                                         # Ask AI on log lines; any OpenAI-compatible endpoint
+#   base_url: http://192.168.1.30:11434/v1    # e.g. Ollama
+#   model: llama3.1
+#   api_key: ""
+
+# ---------------------------------------------------------------- LLM server and GPU (Windows VM)
+# llama:                                      # scripts/windows/install-llama-agent.ps1 prints the agent values
+#   url: http://192.168.1.18:8081
+#   agent_url: http://192.168.1.18:8090
+#   agent_token: ${LLAMA_AGENT_TOKEN}
+#   vmid: 100
+# gpu_watch:                                  # alert when the GPU stays busy while llama-server is idle
+#   agent_url: http://192.168.1.18:9835
+#   agent_token: ${GPU_AGENT_TOKEN}
+#   vmid: 100
+
+# ---------------------------------------------------------------- Data manager (browse and query databases)
+data:
+  enabled: false                              # true turns on the Data page (installs the database drivers)
+  # sqlite_dirs: [/srv/databases]             # SQLite files may only be opened under these directories
+  # allowed_nets: [192.168.1.0/24]            # where connections created in the UI may point
+  connections: []                             # declared here = read-only by default, locked in the UI
+  #  - id: main_mongo                         # letters, digits, underscore
+  #    kind: mongodb                          # mongodb | redis | postgres | mysql | mssql | sqlite | milvus
+  #    name: Main Mongo
+  #    uri: mongodb://user:${MONGO_PASSWORD}@192.168.1.40:27017/
+  #  - id: cache
+  #    kind: redis
+  #    host: 192.168.1.41
+  #    password: ${REDIS_PASSWORD}
+  #    tls: true
+  #  - id: reports
+  #    kind: postgres
+  #    host: 192.168.1.42
+  #    username: dashboard_ro
+  #    password: ${PG_PASSWORD}
+  #    database: reports
+
+# ---------------------------------------------------------------- nginx
+nginx:
+  manage: true                                # Nginx page can create/edit/delete sites inside this container
+  # sites_dir: /etc/nginx/sites-enabled       # where vhosts live: the Nginx page reads/writes here and apply renders here
+  # conf_dir: /etc/nginx/conf.d               # http-level snippets (default-deny, JSON log format)
+  # binary: nginx                             # command used for `nginx -t` and reload
+  # default_deny: false                       # refuse TLS for hostnames that have no site
+  # internal_networks: [100.64.0.0/10]        # extra ranges treated as "internal" (VPN, mesh)
+  # homedash:                                 # put homedash itself behind nginx
+  #   domain: dash.example.com
+  #   tls_cert: /etc/letsencrypt/live/example.com/fullchain.pem
+  #   tls_key: /etc/letsencrypt/live/example.com/privkey.pem
+  #   redirect_http: true
+  #   allow: [192.168.1.0/24]                 # optional allow-list
+  # sites:                                    # reverse proxies for your other services
+  #   - name: jellyfin
+  #     domain: jellyfin.example.com
+  #     upstream: http://192.168.1.50:8096
+  #     tls_cert: /etc/letsencrypt/live/example.com/fullchain.pem
+  #     tls_key: /etc/letsencrypt/live/example.com/privkey.pem
+  #     websocket: true
+  #     internal_only: false
+  #     max_body: 1m
+
+metrics:
+  enabled: true                               # GET /metrics for Prometheus (bearer token is generated)
+
+# ---------------------------------------------------------------- add-ons: files for infrastructure around homedash
+# `homedash-config apply` renders these into /etc/homedash/rendered/ . Host files are installed with
+# tools/pve/host-addons.sh on the Proxmox host; stack files go to your Loki / Prometheus / Grafana containers.
+addons:
+  alloy:                                      # one log shipper on the Proxmox host -> Loki
+    enabled: false
+    # loki_push_url: http://192.168.1.16:3100/loki/api/v1/push   # default: loki.url + /loki/api/v1/push
+    # host_label: pve
+    # environment: homelab
+    # timezone: UTC                           # time zone of nginx error log timestamps
+    # nginx_logs: true                        # also writes an nginx JSON access log
+    # guests: true                            # ship every LXC guest's journal
+    # app_logs:
+    #   - { name: myapp, path: /var/log/myapp/*.log }
+  loki_server:                                # config for your Loki container
+    enabled: false
+    # retention_days: 31
+    # nginx_retention_days: 14
+  prometheus:                                 # config for your Prometheus container + node exporter on the host
+    enabled: false
+    # scrape_interval: 15s
+    # homedash_target: 192.168.1.60:3000      # how Prometheus reaches this container
+    # node_exporter_listen: 192.168.1.10:9100
+    # node_targets: [ { name: pve, address: "192.168.1.10:9100" } ]
+    # crowdsec_targets: [ { name: crowdsec, address: "192.168.1.70:6060" } ]
+    # targets:
+    #   - { job: speedtest, targets: ["192.168.1.80:80"], path: /prometheus, interval: 60s }
+  crowdsec:                                   # snapshot timer on the host feeding the CrowdSec page
+    enabled: false
+    # container: 0                            # CTID of the central CrowdSec engine; 0 = cscli on the host
+    # interval_seconds: 30
+  grafana:
+    provision: false                          # datasource + dashboard provisioning files
+
+# Any variable the settings above do not cover can be set verbatim (see server/.env.example):
+# env:
+#   LOG_LEVEL: debug

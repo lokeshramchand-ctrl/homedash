@@ -1,0 +1,10 @@
+[Unit]
+Description=CrowdSec snapshot for homedash every {{addons.crowdsec.interval_seconds}} s
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec={{addons.crowdsec.interval_seconds}}
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

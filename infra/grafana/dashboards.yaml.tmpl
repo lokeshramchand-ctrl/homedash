@@ -1,0 +1,11 @@
+# Grafana provisioning: load dashboard JSON files from a folder (rendered by homedash-config).
+# Install in /etc/grafana/provisioning/dashboards/ and copy grafana/dashboards/*.json to /var/lib/grafana/dashboards/
+apiVersion: 1
+providers:
+  - name: homedash
+    folder: homedash
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

@@ -1,0 +1,9 @@
+[Unit]
+Description=Publish a read-only CrowdSec snapshot for homedash
+After=pve-guests.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/homedash/host.env
+ExecStart=/usr/local/sbin/homedash-crowdsec-snapshot
+Nice=10

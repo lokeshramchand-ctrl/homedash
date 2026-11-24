@@ -1,0 +1,9 @@
+[Unit]
+Description=Track LXC guest restarts for Alloy
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+
+[Install]
+WantedBy=timers.target

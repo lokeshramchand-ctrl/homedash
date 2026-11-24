@@ -1,0 +1,7 @@
+# managed by homedash-config (addons.alloy.nginx_logs)
+# Structured access log for Loki/Alloy. Additive: /var/log/nginx/access.log is untouched.
+log_format hd_json escape=json
+  '{"ts":"$time_iso8601","vhost":"$host","remote":"$remote_addr","method":"$request_method",'
+  '"uri":"$uri","status":"$status","bytes":$body_bytes_sent,"rt":$request_time,'
+  '"urt":"$upstream_response_time","ua":"$http_user_agent","ref":"$http_referer","proto":"$server_protocol","tls":"$ssl_protocol"}';
+access_log /var/log/nginx/access.json.log hd_json;
