@@ -1,9 +1,10 @@
 import { createHash, createPublicKey, randomBytes, verify } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { createSession } from './auth.js';
+import { completeSignIn, createSession, mfaStateFor } from './auth.js';
 import { cfg, oidcConfigured } from './config.js';
 import { saveOidc, takeOidc, upsertSsoUser } from './db.js';
 import { HttpError } from './errors.js';
+import { parseRole } from './roles.js';
 import { logEvent } from './events.js';
 
 // OpenID Connect sign-in (any provider): authorization code flow with PKCE and a verified ID token (signature checked
@@ -157,8 +158,12 @@ export function registerOidc(app: FastifyInstance) {
     if (denied) return fail(denied, display);
 
     const username = `sso:${display}`.toLowerCase().slice(0, 64);
-    const user = upsertSsoUser(`${kc.issuer}|${claims.sub}`, username);
-    await createSession(req, reply, user.id, user.username);
+    const names = [claims.preferred_username, claims.email].filter(Boolean).map((x) => String(x).toLowerCase());
+    const role = names.some((n) => kc.adminUsers.includes(n)) ? 'admin' : parseRole(kc.defaultRole, 'admin');
+    const user = upsertSsoUser(`${kc.issuer}|${claims.sub}`, username, role);
+    const mfa = mfaStateFor(user, req.ip);
+    await createSession(req, reply, user.id, user.username, { role, mfa });
+    if (mfa !== 'pending') completeSignIn(req, user);
     reply.clearCookie(STATE_COOKIE, { path: '/api/auth/sso' });
     req.log.info({ username: user.username, ip: req.ip }, 'login (oidc)');
     return reply.redirect('/');

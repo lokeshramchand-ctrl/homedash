@@ -20,6 +20,14 @@ function conflicts(): Record<number, number[]> {
   }
 }
 
+/** TRUST_PROXY: false, true (loopback only), or a list of proxy addresses/CIDRs allowed to set X-Forwarded-For. */
+function trustProxy(): boolean | string[] {
+  const v = env('TRUST_PROXY', 'true');
+  if (['0', 'false', 'no', 'off'].includes(v.toLowerCase())) return false;
+  if (['1', 'true', 'yes', 'on'].includes(v.toLowerCase())) return ['127.0.0.1', '::1'];
+  return v.split(/[\s,]+/).filter(Boolean);
+}
+
 const trim = (u: string) => u.replace(/\/+$/, '');
 /** OIDC_<name>, falling back to the legacy KEYCLOAK_<name>. */
 const oenv = (name: string): string => env(`OIDC_${name}`) || env(`KEYCLOAK_${name}`);
@@ -59,12 +67,14 @@ function envDatasources(): EnvDatasource[] {
 export const cfg = {
   port: Number(env('PORT', '3000')),
   host: env('HOST', '127.0.0.1'),
-  trustProxy: bool('TRUST_PROXY', true),
+  trustProxy: trustProxy(),
   serveDist: env('SERVE_DIST'), // optional path to the built UI (dist/)
 
   dbPath: env('DB_PATH', './data/homedash.db'), // SQLite file; the directory is created on start
 
   sessionTtlHours: Number(env('SESSION_TTL_HOURS', '12')),
+  // A session unused for this long is dropped even if its absolute lifetime has not ended.
+  sessionIdleMinutes: Number(env('SESSION_IDLE_MINUTES', '120')),
   cookieSecure: bool('COOKIE_SECURE', true),
 
   pveUrl: trim(env('PVE_URL')),
@@ -122,6 +132,10 @@ export const cfg = {
     // (realm_access.roles, resource_access.<client>.roles) plus the common `roles` and `groups` claims.
     rolesClaims: (oenv('ROLES_CLAIM') || 'realm_access.roles,resource_access.{client}.roles,roles,groups').split(',').map((x) => x.trim()).filter(Boolean),
     label: oenv('LABEL') || 'Single sign-on',
+    // Role for SSO sign-ins: users listed in OIDC_ADMIN_USERS get admin, everyone else OIDC_DEFAULT_ROLE
+    // (viewer | operator | admin). The default stays admin so enabling roles changes nothing until you set it.
+    adminUsers: oenv('ADMIN_USERS').toLowerCase().split(/[\s,]+/).filter(Boolean),
+    defaultRole: oenv('DEFAULT_ROLE') || 'admin',
   },
 
   ntfy: {
@@ -179,6 +193,9 @@ export const cfg = {
   datasourceAllowedNets: env('DATASOURCE_ALLOWED_NETS').split(/[\s,]+/).filter(Boolean),
   envDatasources: envDatasources(), // connections declared as DS_<ID>_* in .env; locked in the UI, .env is the source of truth
 
+  // Two-step sign-in (TOTP). MFA_KEY seals the secrets (32+ characters); MFA_REQUIRED forces enrolment before anything else is reachable.
+  mfa: { key: env('MFA_KEY'), required: bool('MFA_REQUIRED', false), issuer: env('MFA_ISSUER', 'homedash') },
+
   frameSrc: env('FRAME_SRC').split(/\s+/).filter(Boolean), // origins the UI may embed (Grafana, Kuma status page)
 };
 
@@ -193,3 +210,4 @@ export const crowdsecConfigured = () => !!cfg.crowdsecSnapshot;
 export const dataConfigured = () => cfg.datasourceKey.length >= 16;
 export const llamaConfigured = () => !!(cfg.llama.url || cfg.llama.agentUrl);
 export const gpuWatchConfigured = () => !!cfg.gpuWatch.agentUrl;
+export const mfaConfigured = () => cfg.mfa.key.length >= 32;

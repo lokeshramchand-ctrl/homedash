@@ -149,17 +149,7 @@ export function registerQemu(app: FastifyInstance) {
     return run(done, () => pve<string>('POST', `${node()}/vzdump`, { vmid: String(g.vmid), storage, mode, compress: 'zstd' }));
   });
 
-  app.post<{ Params: { vmid: string }; Body: { name?: string; description?: string; vmstate?: boolean } }>('/api/guests/:vmid/snapshots', async (req) => {
-    const g = await findGuest(req.params.vmid);
-    const name = String(req.body?.name ?? '');
-    if (!SNAP_NAME.test(name)) throw new HttpError(400, 'BAD_REQUEST', 'Snapshot name must start with a letter and use only letters, digits, - and _ (max 40)');
-    const done = await guard(req, g, 'snapshot-create');
-    const form: Record<string, string> = { snapname: name };
-    if (req.body?.description) form.description = String(req.body.description).slice(0, 200);
-    if (req.body?.vmstate && g.type === 'qemu' && g.status === 'running') form.vmstate = '1';
-    return run(done, () => pve<string>('POST', `${guestPath(g)}/snapshot`, form));
-  });
-
+  // Snapshot create/delete live in guests.ts; only the rollback (with typed confirmation) is added here.
   app.post<{ Params: { vmid: string; name: string }; Body: { confirm?: string } }>('/api/guests/:vmid/snapshots/:name/rollback', async (req) => {
     const g = await findGuest(req.params.vmid);
     const name = req.params.name;
@@ -167,14 +157,6 @@ export function registerQemu(app: FastifyInstance) {
     if (req.body?.confirm !== name) throw new HttpError(400, 'CONFIRM_REQUIRED', 'Type the snapshot name to confirm the rollback');
     const done = await guard(req, g, 'snapshot-rollback');
     return run(done, () => pve<string>('POST', `${guestPath(g)}/snapshot/${name}/rollback`));
-  });
-
-  app.delete<{ Params: { vmid: string; name: string } }>('/api/guests/:vmid/snapshots/:name', async (req) => {
-    const g = await findGuest(req.params.vmid);
-    const name = req.params.name;
-    if (!SNAP_NAME.test(name)) throw new HttpError(400, 'BAD_REQUEST', 'Invalid snapshot name');
-    const done = await guard(req, g, 'snapshot-delete');
-    return run(done, () => pve<string>('DELETE', `${guestPath(g)}/snapshot/${name}`));
   });
 
   app.post<{ Params: { vmid: string }; Body: { key?: string } }>('/api/guests/:vmid/qemu/sendkey', async (req) => {

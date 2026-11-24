@@ -8,6 +8,8 @@ import { registerFeatures } from './features.js';
 import { registerGpuWatch, startGpuWatch } from './gpuwatch.js';
 import { registerLlama } from './llama.js';
 import { registerLoki } from './loki.js';
+import { registerMfa } from './mfa.js';
+import { registerRateLimit } from './ratelimit.js';
 import { registerQemu } from './qemu.js';
 import { registerVmOps } from './vmops.js';
 import { cfg, dataConfigured } from './config.js';
@@ -79,7 +81,9 @@ app.addHook('onRequest', async (req, reply) => {
 
 connectDb();
 await app.register(cookie);
+registerRateLimit(app);
 registerAuth(app);
+registerMfa(app);
 registerOidc(app);
 registerLogs(app);
 registerOverview(app);

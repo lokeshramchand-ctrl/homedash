@@ -20,7 +20,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     res = await fetch('/api' + path, {
       method,
       credentials: 'same-origin',
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers: { 'X-Requested-With': 'homedash', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {

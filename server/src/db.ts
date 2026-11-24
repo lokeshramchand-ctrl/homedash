@@ -6,8 +6,17 @@ import { cfg } from './config.js';
 // Embedded SQLite (node:sqlite, built into Node >= 22.13). One file, no service to run.
 // All timestamps are epoch milliseconds.
 
-export interface UserRow { id: number; username: string; passwordHash: string; createdAt: number; lastLoginAt: number | null }
-export interface SessionRow { id: number; tokenHash: string; userId: number; username: string; expiresAt: number }
+export type Role = 'viewer' | 'operator' | 'admin';
+export interface MfaData { secret: string; enabledAt: number; lastStep: number; recovery: string[] }
+export interface UserRow {
+  id: number; username: string; passwordHash: string; createdAt: number; lastLoginAt: number | null; lastLoginIp: string | null;
+  role: Role | null; // null = created before roles existed: treated as admin
+  mfa: MfaData | null; mfaSetup: { secret: string; expireAt: number } | null; mfaExempt: boolean;
+}
+export type MfaState = 'ok' | 'pending' | 'enroll';
+export interface SessionRow {
+  id: number; tokenHash: string; userId: number; username: string; role: Role | null; mfa: MfaState; createdAt: number; lastSeenAt: number; expiresAt: number;
+}
 export interface AuditRow {
   ts: number; user: string; ip: string; vmid: number; /* 0 = the host itself */ name?: string; action: string;
   result: 'accepted' | 'refused' | 'error'; taskId?: string; reason?: string;
@@ -77,12 +86,27 @@ export function connectDb(): void {
   d = new DatabaseSync(cfg.dbPath);
   d.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
   d.exec(SCHEMA);
+  migrate();
   purgeExpired();
   setInterval(purgeExpired, 3_600_000).unref();
 }
 
 /** The raw SQLite handle, for modules that own their own tables (the data manager). */
 export const getDb = (): DatabaseSync => d;
+
+/** Adds columns introduced after the first release to databases created by an older version. */
+function migrate() {
+  const have = (table: string) => new Set((d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
+  const add = (table: string, col: string, def: string) => { if (!have(table).has(col)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); };
+  add('users', 'role', 'TEXT');
+  add('users', 'last_login_ip', 'TEXT');
+  add('users', 'mfa', 'TEXT');
+  add('users', 'mfa_setup', 'TEXT');
+  add('users', 'mfa_exempt', 'INTEGER NOT NULL DEFAULT 0');
+  add('sessions', 'role', 'TEXT');
+  add('sessions', 'mfa', 'TEXT');
+  add('sessions', 'last_seen_at', 'INTEGER');
+}
 
 export const closeDb = () => { try { d?.close(); } catch { /* already closed */ } };
 
@@ -99,48 +123,106 @@ export function dbOk(): boolean {
   try { d.prepare('SELECT 1').get(); return true; } catch { return false; }
 }
 
+const json = <T>(v: unknown): T | null => { try { return v ? (JSON.parse(String(v)) as T) : null; } catch { return null; } };
 const userOf = (r: any): UserRow | null => r ? ({
-  id: r.id, username: r.username, passwordHash: r.password_hash, createdAt: r.created_at, lastLoginAt: r.last_login_at,
+  id: r.id, username: r.username, passwordHash: r.password_hash, createdAt: r.created_at, lastLoginAt: r.last_login_at, lastLoginIp: r.last_login_ip ?? null,
+  role: (['viewer', 'operator', 'admin'] as const).find((x) => x === r.role) ?? null,
+  mfa: json<MfaData>(r.mfa), mfaSetup: json<{ secret: string; expireAt: number }>(r.mfa_setup), mfaExempt: !!r.mfa_exempt,
 }) : null;
 
 // ---- users -------------------------------------------------------------------------------------
 export const findUser = (username: string) =>
   userOf(d.prepare('SELECT * FROM users WHERE username = ?').get(username));
+export const findUserById = (id: number) => userOf(d.prepare('SELECT * FROM users WHERE id = ?').get(id));
 
-/** Creates the user or resets the password (ending its sessions). Returns which one happened. */
-export function upsertPasswordUser(username: string, passwordHash: string): 'created' | 'updated' {
+/** Creates the user or resets the password (ending its sessions). The role is only changed when one is given. */
+export function upsertPasswordUser(username: string, passwordHash: string, opts: { role?: Role; mfaExempt?: boolean } = {}): 'created' | 'updated' {
   const existing = d.prepare('SELECT id FROM users WHERE username = ?').get(username) as { id: number } | undefined;
   if (!existing) {
-    d.prepare('INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)').run(username, passwordHash, Date.now());
+    d.prepare('INSERT INTO users (username, password_hash, created_at, role, mfa_exempt) VALUES (?, ?, ?, ?, ?)')
+      .run(username, passwordHash, Date.now(), opts.role ?? 'viewer', opts.mfaExempt ? 1 : 0);
     return 'created';
   }
   d.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, existing.id);
+  if (opts.role) d.prepare('UPDATE users SET role = ? WHERE id = ?').run(opts.role, existing.id);
+  if (opts.mfaExempt) d.prepare('UPDATE users SET mfa_exempt = 1 WHERE id = ?').run(existing.id);
   d.prepare('DELETE FROM sessions WHERE username = ?').run(username);
   return 'updated';
 }
 
-export const touchLogin = (id: number) => { d.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), id); };
+export const touchLogin = (id: number, ip: string | null = null) => {
+  d.prepare('UPDATE users SET last_login_at = ?, last_login_ip = COALESCE(?, last_login_ip) WHERE id = ?').run(Date.now(), ip, id);
+};
 
-/** SSO users are keyed by issuer|sub; the display username can change between logins. */
-export function upsertSsoUser(ssoSub: string, username: string): UserRow {
+/** SSO users are keyed by issuer|sub; the display username and role can change between logins. */
+export function upsertSsoUser(ssoSub: string, username: string, role: Role = 'admin'): UserRow {
   const now = Date.now();
-  d.prepare(`INSERT INTO users (username, password_hash, created_at, last_login_at, sso_sub) VALUES (?, '', ?, ?, ?)
-    ON CONFLICT (sso_sub) DO UPDATE SET username = excluded.username, last_login_at = excluded.last_login_at`).run(username, now, now, ssoSub);
+  d.prepare(`INSERT INTO users (username, password_hash, created_at, last_login_at, sso_sub, role) VALUES (?, '', ?, ?, ?, ?)
+    ON CONFLICT (sso_sub) DO UPDATE SET username = excluded.username, last_login_at = excluded.last_login_at, role = excluded.role`).run(username, now, now, ssoSub, role);
   return userOf(d.prepare('SELECT * FROM users WHERE sso_sub = ?').get(ssoSub))!;
 }
 
+/** Lockout escape hatch: removes two-step sign-in and ends every session. Returns false for an unknown user. */
+export function resetUserMfa(username: string): { found: boolean; hadMfa: boolean; sessions: number } {
+  const u = findUser(username);
+  if (!u) return { found: false, hadMfa: false, sessions: 0 };
+  d.prepare('UPDATE users SET mfa = NULL, mfa_setup = NULL WHERE id = ?').run(u.id);
+  const r = d.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+  return { found: true, hadMfa: !!u.mfa, sessions: Number(r.changes) };
+}
+
+export const setMfaSetup = (id: number, v: { secret: string; expireAt: number } | null) => {
+  d.prepare('UPDATE users SET mfa_setup = ? WHERE id = ?').run(v ? JSON.stringify(v) : null, id);
+};
+export const enableMfa = (id: number, m: MfaData) => {
+  d.prepare('UPDATE users SET mfa = ?, mfa_setup = NULL WHERE id = ?').run(JSON.stringify(m), id);
+};
+export const disableMfa = (id: number) => { d.prepare('UPDATE users SET mfa = NULL, mfa_setup = NULL WHERE id = ?').run(id); };
+
+/** Spends a TOTP step: succeeds only if it is newer than the last one used (a code works once). */
+export function spendTotpStep(id: number, step: number): boolean {
+  const u = findUserById(id);
+  if (!u?.mfa || !(u.mfa.lastStep < step)) return false;
+  d.prepare('UPDATE users SET mfa = ? WHERE id = ?').run(JSON.stringify({ ...u.mfa, lastStep: step }), id);
+  return true;
+}
+/** Removes one recovery code hash; succeeds only if it was present. */
+export function spendRecovery(id: number, hash: string): boolean {
+  const u = findUserById(id);
+  if (!u?.mfa || !u.mfa.recovery.includes(hash)) return false;
+  d.prepare('UPDATE users SET mfa = ? WHERE id = ?').run(JSON.stringify({ ...u.mfa, recovery: u.mfa.recovery.filter((h) => h !== hash) }), id);
+  return true;
+}
+export function replaceRecovery(id: number, hashes: string[]) {
+  const u = findUserById(id);
+  if (u?.mfa) d.prepare('UPDATE users SET mfa = ? WHERE id = ?').run(JSON.stringify({ ...u.mfa, recovery: hashes }), id);
+}
+
 // ---- sessions ----------------------------------------------------------------------------------
-export function insertSession(s: { tokenHash: string; userId: number; username: string; expiresAt: number; ip: string; userAgent: string }) {
-  d.prepare('INSERT INTO sessions (token_hash, user_id, username, created_at, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(s.tokenHash, s.userId, s.username, Date.now(), s.expiresAt, s.ip, s.userAgent);
+export function insertSession(s: { tokenHash: string; userId: number; username: string; role: Role; mfa: MfaState; expiresAt: number; ip: string; userAgent: string }) {
+  const now = Date.now();
+  d.prepare('INSERT INTO sessions (token_hash, user_id, username, created_at, expires_at, ip, user_agent, role, mfa, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(s.tokenHash, s.userId, s.username, now, s.expiresAt, s.ip, s.userAgent, s.role, s.mfa, now);
 }
 
 export function findSession(tokenHash: string): SessionRow | null {
   const r = d.prepare('SELECT * FROM sessions WHERE token_hash = ? AND expires_at > ?').get(tokenHash, Date.now()) as any;
-  return r ? { id: r.id, tokenHash: r.token_hash, userId: r.user_id, username: r.username, expiresAt: r.expires_at } : null;
+  return r ? {
+    id: r.id, tokenHash: r.token_hash, userId: r.user_id, username: r.username,
+    role: (['viewer', 'operator', 'admin'] as const).find((x) => x === r.role) ?? null,
+    mfa: (['pending', 'enroll'] as const).find((x) => x === r.mfa) ?? 'ok',
+    createdAt: r.created_at, lastSeenAt: r.last_seen_at ?? r.created_at, expiresAt: r.expires_at,
+  } : null;
 }
 
+export const touchSession = (id: number) => { d.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ?').run(Date.now(), id); };
+export const setSessionMfa = (id: number, mfa: MfaState) => { d.prepare('UPDATE sessions SET mfa = ? WHERE id = ?').run(mfa === 'ok' ? null : mfa, id); };
 export const deleteSession = (tokenHash: string) => { d.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash); };
+export const deleteSessionById = (id: number) => { d.prepare('DELETE FROM sessions WHERE id = ?').run(id); };
+/** Ends every session of a user, optionally keeping one. Returns how many were removed. */
+export function deleteUserSessions(userId: number, exceptId?: number): number {
+  return Number(d.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(userId, exceptId ?? -1).changes);
+}
 
 // ---- login rate limit --------------------------------------------------------------------------
 export function attemptCount(key: string): number {
