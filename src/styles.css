@@ -1582,3 +1582,32 @@ a.stat:hover .stat-ic { background: var(--signal-soft); color: var(--signal); bo
 .kind-pick:hover, .kind-pick:focus-visible { border-color: var(--text, currentColor); }
 .svc-logo { display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; color: #fff; font-weight: 600; letter-spacing: -.02em; flex: none; }
 .test-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+/* Services page: logos, sparklines, launcher, wall mode */
+.svc-page { --svc-accent: #0870b9; }
+.svc-head { align-items: center; }
+.svc-head .svc-title { flex: 1; }
+.svc-state { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.spark { height: 24px; width: 120px; flex: none; } .spark-empty { background: var(--surface-2); border-radius: 4px; }
+.spark-ok { fill: var(--svc-accent); opacity: .75; } .spark-down { fill: var(--red); opacity: .8; }
+.fav.on { color: var(--svc-accent); } .fav.on svg { fill: currentColor; }
+.drag-handle { cursor: grab; color: var(--muted); display: inline-flex; padding: 4px; }
+.drag-over { outline: 2px dashed var(--svc-accent); outline-offset: 4px; border-radius: 12px; }
+.svc:hover { border-color: var(--svc-accent); }
+.svc-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.svc-bar .svc-sum { flex: 1; min-width: 260px; max-width: 560px; }
+.svc-tools { display: flex; align-items: center; gap: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); color: inherit; padding: 6px 12px; cursor: pointer; font: inherit; } .seg button.on { background: var(--svc-accent); color: #fff; }
+.swatches { display: inline-flex; gap: 6px; } .swatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; } .swatch.on { border-color: var(--text); }
+.lau-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.lau { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); position: relative; transition: border-color .2s, transform .2s; } .lau:hover { border-color: var(--svc-accent); transform: translateY(-2px); }
+.lau-link { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px 12px; color: inherit; text-decoration: none; }
+.lau-name { font-size: 13px; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot-ok { background: var(--green); } .dot-warn { background: #c27a16; } .dot-down { background: var(--red); }
+body.wall .side, body.wall .topbar, body.wall header.top { display: none !important; }
+body.wall .content { padding: 28px 40px; max-width: none; }
+body.wall .svc-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); } body.wall .svc-stats dd { font-size: 22px; }
+@media (max-width: 640px) { .svc-grid { grid-template-columns: 1fr; } .svc-tools { width: 100%; justify-content: space-between; } .spark { width: 90px; } }
+@media (prefers-reduced-motion: reduce) { .lau { transition: none; } .lau:hover { transform: none; } }

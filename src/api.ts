@@ -210,6 +210,8 @@ export const api = {
   query: (query: string, start: number, end: number, step: number) =>
     post<PromResult>('/metrics/query', { query, start, end, step }),
   tiles: () => get<Tile[]>('/tiles'),
+  pref: (key: string) => get<{ value: unknown }>(`/prefs/${key}`),
+  setPref: (key: string, value: unknown) => put<{ ok: boolean }>(`/prefs/${key}`, { value }),
   tileCatalog: () => get<TileCatalog>('/tiles/catalog'),
   discoverTiles: () => get<{ scanned: number; found: TileSuggestion[] }>('/admin/tiles/discover'),
   tileAdmin: () => get<TileAdmin>('/admin/tiles'),

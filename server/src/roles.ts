@@ -22,6 +22,7 @@ const ADMIN_WRITE_PREFIXES = ['/api/nginx', '/api/host', '/api/notify/routes'];
 /** The lowest role allowed to call `method path` (path may be a matched route pattern or a decoded URL path). */
 export function requiredRole(method: string, path: string): Role {
   if (path.startsWith('/api/auth/')) return 'viewer'; // login, logout, who am I: any signed-in user
+  if (path.startsWith('/api/prefs/')) return 'viewer'; // a person's own layout and theme: harmless, so every role may save them
   if (ADMIN_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) return 'admin';
   const read = method === 'GET' || method === 'HEAD';
   if (!read && ADMIN_WRITE_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) return 'admin';

@@ -54,7 +54,7 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
   { id: 'logs', label: 'Logs', icon: 'list', group: 'Monitoring' },
   { id: 'crowdsec', label: 'CrowdSec', icon: 'lock', group: 'Security', feature: 'crowdsec' },
   { id: 'data', label: 'Data', icon: 'disk', group: 'Services', feature: 'data' },
-  { id: 'tiles', label: 'Service tiles', icon: 'grid', group: 'Services', feature: 'tiles' },
+  { id: 'tiles', label: 'Services', icon: 'grid', group: 'Services', feature: 'tiles' },
   { id: 'llama', label: 'LLM server', icon: 'cpu', group: 'Services', feature: 'llama' },
   { id: 'access', label: 'Access', icon: 'settings', group: 'Settings' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', group: 'Settings' },
