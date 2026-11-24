@@ -24,6 +24,7 @@ proxmox:
   token_id: homedash@pve!ui          # create with tools/pve/create-token.sh
   token_secret: ${PVE_TOKEN_SECRET}
   insecure_tls: true                 # self-signed Proxmox certificate
+  # url: [https://pve1:8006, https://pve2:8006]   # members of one cluster: if the first is down the next answers
   # allowed_vmids: []                # empty = every guest on the node
   # protected_vmids: [100]           # guests homedash may never act on
   # featured_vmid: 0                 # guest shown as a large card
@@ -32,6 +33,26 @@ proxmox:
   # backup_max_age_days: 8
   # snapshot_max_age_days: 30
   # memory_reserve_mb: 1024
+
+# Several clusters or stand-alone nodes behind one dashboard: replace url/node/token_* above with a list. Each entry has its
+# own token, protected guests and settings; use the cluster switcher in the top bar. Several addresses per cluster = failover.
+# proxmox:
+#   clusters:
+#     - id: lab
+#       name: Lab cluster
+#       url: [https://pve1.lab:8006, https://pve2.lab:8006, https://pve3.lab:8006]
+#       node: pve1                     # the node host pages (Node, Health, Capacity) open on
+#       token_id: homedash@pve!ui
+#       token_secret: ${LAB_TOKEN}
+#       insecure_tls: true
+#       protected_vmids: [100]
+#       allow_host_power: false
+#     - id: office
+#       name: Office
+#       url: https://pve.office:8006
+#       node: pve
+#       token_id: homedash@pve!ui
+#       token_secret: ${OFFICE_TOKEN}
 
 # ---------------------------------------------------------------- sign-in
 auth:
@@ -62,6 +83,7 @@ auth:
 #     web:
 #       vmids: ["100-120", 205]        # ids and ranges
 #       tags: [lab]                    # and/or Proxmox tags
+#       # cluster: lab                 # with several clusters: the ids belong to this cluster only (guest ids repeat across clusters)
 #     db:
 #       vmids: ["150-159"]
 #   group_roles:                       # identity-provider groups (OIDC claims or SCIM) -> role. Highest match wins.

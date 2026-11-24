@@ -1,3 +1,4 @@
+import { selectedCluster, selectedNode } from './selection';
 import type {
   AppConfig, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
@@ -42,7 +43,7 @@ import type {
   LlamaState,
   LlamaStatus,
   LogAnalytics,
-  SilenceItem, SilenceInput, RouteItem, RouteInput, LoginResult, Features, ChannelPref, NotifyDelivery, AccessRole, ApiTokens, Approvals, ApprovalItem, PasskeyItem, AdminUser, AdminSession, AccessInfo,
+  SilenceItem, SilenceInput, RouteItem, RouteInput, ClustersResponse, MigrateInfo, LoginResult, Features, ChannelPref, NotifyDelivery, AccessRole, ApiTokens, Approvals, ApprovalItem, PasskeyItem, AdminUser, AdminSession, AccessInfo,
   LokiHistogram,
   LokiLine,
   LokiStatus,
@@ -77,7 +78,7 @@ async function req<T>(method: string, path: string, body?: unknown, extra: Recor
     res = await fetch('/api' + path, {
       method,
       credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'homedash', ...extra, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { 'X-Requested-With': 'homedash', ...(selectedCluster() ? { 'X-Cluster': selectedCluster() } : {}), ...(selectedNode() ? { 'X-Node': selectedNode() } : {}), ...extra, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -274,6 +275,9 @@ export const api = {
   routes: () => get<RouteItem[]>('/notify/routes'),
   routeSave: (id: number | null, b: RouteInput) => (id === null ? post<{ id: number }>('/notify/routes', b) : put<{ id: number }>(`/notify/routes/${id}`, b)),
   routeDelete: (id: number) => del<{ ok: boolean }>(`/notify/routes/${id}`),
+  clusters: () => get<ClustersResponse>('/clusters'),
+  migrateInfo: (vmid: number) => get<MigrateInfo>(`/guests/${vmid}/migrate`),
+  migrate: (vmid: number, target: string, withLocalDisks = false) => post<{ taskId: string }>(`/guests/${vmid}/migrate`, { target, withLocalDisks }),
 };
 
 /** Optional runtime config shipped next to index.html (see API_NOTES.md). */

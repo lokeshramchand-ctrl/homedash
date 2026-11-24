@@ -26,6 +26,9 @@ import Nginx from './pages/Nginx';
 import Overview from './pages/Overview';
 import { TwoStepGate, TwoStepSheet } from './components/TwoStep';
 import Access from './pages/Access';
+import Nodes from './pages/Nodes';
+import { ClusterPicker } from './components/Cluster';
+import { select, selectedCluster, selectedNode } from './selection';
 import Crowdsec from './pages/Crowdsec';
 import Data from './pages/Data';
 import Llama from './pages/Llama';
@@ -34,6 +37,7 @@ import type { AppConfig, Features, Guest } from './types';
 const ALL_NAV: { id: string; label: string; icon: IconName; group: string; feature?: keyof Features }[] = [
   { id: 'overview', label: 'Overview', icon: 'grid', group: 'Workspace' },
   { id: 'node', label: 'Node', icon: 'node', group: 'Datacenter' },
+  { id: 'cluster', label: 'Cluster', icon: 'network', group: 'Datacenter' },
   { id: 'guests', label: 'Guests', icon: 'server', group: 'Datacenter' },
   { id: 'gpu', label: 'GPU & passthrough', icon: 'cpu', group: 'Datacenter' },
   { id: 'tasks', label: 'Task log', icon: 'tasks', group: 'Datacenter' },
@@ -56,7 +60,7 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
   crowdsec: 'Search…', access: 'Search…', data: 'Search…', llama: 'Search…',
-  scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
+  cluster: 'Search…', scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
 
@@ -123,6 +127,20 @@ const ROLE_LABEL: Record<string, string> = { admin: 'Administrator', operator: '
 function Shell({ user, role, config, onLogout }: { user: string; role: string; config: AppConfig; onLogout: () => void }) {
   const [twoStep, setTwoStep] = useState(false);
   const toast = useToast();
+  // Which cluster and node are selected. Changing either remounts the page so every query starts afresh.
+  const [sel, setSel] = useState({ cluster: selectedCluster(), node: selectedNode() });
+  useEffect(() => {
+    const f = () => setSel({ cluster: selectedCluster(), node: selectedNode() });
+    window.addEventListener('cluster:changed', f);
+    return () => window.removeEventListener('cluster:changed', f);
+  }, []);
+  const clusters = useQuery(api.clusters, [sel.cluster], 30_000);
+  useEffect(() => {
+    const d = clusters.data;
+    if (!d) return;
+    // First visit, or the remembered cluster no longer exists: settle on the server's current one.
+    if (!sel.cluster || !d.clusters.some((c) => c.id === sel.cluster)) select(d.current);
+  }, [clusters.data, sel.cluster]);
   // A risky action that needs a second person's approval: tell the user where to follow it up.
   useEffect(() => {
     const f = (e: Event) => {
@@ -244,6 +262,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             <ol className="crumbs" aria-label="Breadcrumb">
               {crumbs.map((c, i) => <li key={i} className={i === crumbs.length - 1 ? 'cur' : ''}>{c}</li>)}
             </ol>
+            <ClusterPicker data={clusters.data} cluster={sel.cluster} node={sel.node} />
             <label className="search topsearch hide-sm">
               <Icon name="search" size={16} />
               <input value={q} onChange={(e) => onSearch(e.target.value)} placeholder={SEARCH_HINT[current.id]} aria-label="Search" />
@@ -264,11 +283,12 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             </div>
           </header>
 
-          <main className="content" key={parts.join('/')}>
+          <main className="content" key={`${parts.join('/')}|${sel.cluster}|${sel.node}`}>
             {page === 'overview' && <Overview />}
             {page === 'node' && <Node tab={parts[1]} />}
             {page === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}
             {page === 'tasks' && <Tasks />}
+            {page === 'cluster' && <Nodes />}
             {page === 'gpu' && <Gpu />}
             {page === 'diagnostics' && <Diagnostics />}
             {page === 'scenes' && <Scenes />}

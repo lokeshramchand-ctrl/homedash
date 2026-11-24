@@ -3,6 +3,7 @@ export type GuestAction = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | '
 export type KumaStatus = 'up' | 'down' | 'pending' | 'maintenance';
 
 export interface Overview {
+  cluster?: { id: string; name: string; multi: boolean };
   guests: { total: number; running: number; stopped: number };
   nginx: { sites: number };
   kuma: { up: number; down: number; pending: number };
@@ -22,6 +23,9 @@ export interface Guest {
   tags: string[];
   conflicts: number[];
   featured: boolean;
+  /** The Proxmox node the guest runs on, and its cluster. */
+  node: string;
+  cluster: string;
 }
 
 export interface Task {
@@ -349,7 +353,7 @@ export interface CsAlert {
 /** Which optional integrations the server has switched on (GET /api/features). */
 export interface Features {
   proxmox: boolean; grafana: boolean; kuma: boolean; loki: boolean; crowdsec: boolean; data: boolean; llama: boolean; gpuWatch: boolean;
-  ntfy: boolean; alerts: boolean; passkeys: boolean; scim: boolean; teams: boolean; approvals: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
+  ntfy: boolean; alerts: boolean; clusters?: boolean; passkeys: boolean; scim: boolean; teams: boolean; approvals: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
 }
 
 // ---- access: teams, tokens, approvals, passkeys, users ----
@@ -380,3 +384,15 @@ export interface SilenceItem { id: number; name: string; reason: string; startsA
 export interface SilenceInput { name: string; reason?: string; startsAt?: string; endsAt?: string; categories: string[]; contains?: string; weekly?: WeeklyWindow | null }
 export interface RouteItem { id: number; name: string; enabled: boolean; categories: string[]; minLevel: AlertLevel; contains: string; channels: string[]; weekly: WeeklyWindow | null; position: number }
 export interface RouteInput { name: string; enabled?: boolean; categories: string[]; minLevel: AlertLevel; contains?: string; channels: string[]; weekly?: WeeklyWindow | null }
+
+// ---- clusters and nodes ----
+export interface ClusterNode { name: string; online: boolean; local: boolean; cpu: number; mem: number; maxmem: number; disk: number; maxdisk: number; uptime: number; guests: number; running: number }
+export interface ClusterInfo {
+  id: string; name: string; reachable: boolean; error: string | null; addresses: number; activeAddress: string | null; quorate: boolean | null; standalone: boolean;
+  version: string | null; nodes: ClusterNode[]; guests: { total: number; running: number };
+}
+export interface ClustersResponse { current: string; defaultNode: string; clusters: ClusterInfo[] }
+export interface MigrateInfo {
+  vmid: number; name: string; node: string; type: 'lxc' | 'qemu'; running: boolean; mode: 'live' | 'restart' | 'offline';
+  localDisks: { volid: string; size: number }[]; localResources: string[]; targets: { name: string; online: boolean; allowed: boolean; reason: string | null }[];
+}

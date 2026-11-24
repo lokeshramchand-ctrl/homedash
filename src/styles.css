@@ -1553,3 +1553,13 @@ a.stat:hover .stat-ic { background: var(--signal-soft); color: var(--signal); bo
 .chip-toggle { height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border-2); background: none; color: var(--muted); font-size: 12px; font-weight: 500; cursor: pointer; }
 .chip-toggle.on { background: var(--signal); border-color: var(--signal); color: #fff; }
 .chip-toggle:disabled { opacity: .55; cursor: default; }
+
+/* ---------- clusters and nodes ---------- */
+.picker { display: flex; gap: 8px; align-items: center; }
+.picker-sel { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 10px; border: 1px solid var(--border-2); border-radius: 8px; background: var(--surface); color: var(--muted); }
+.picker-sel select { border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 500; max-width: 150px; outline: none; cursor: pointer; }
+.node-tag { background: var(--surface-2); }
+.nodes li { align-items: center; gap: 16px; flex-wrap: wrap; }
+.node-meters { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 14px; flex: 1 1 360px; }
+.node-meters small { display: block; margin-bottom: 4px; }
+@media (max-width: 720px) { .picker { order: 3; width: 100%; } .picker-sel select { max-width: 110px; } .node-meters { grid-template-columns: 1fr; flex-basis: 100%; } }

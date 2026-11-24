@@ -17,6 +17,7 @@ export default function Guests() {
   const [pending, setPending] = useState<Record<number, GuestAction>>({});
   const [confirm, setConfirm] = useState<{ g: Guest; action: GuestAction; warn?: string } | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
+  const [nodeSel, setNodeSel] = useState('all');
   const { q: search } = useSearch();
 
   useGuestEvents((e) => q.mutate((list) => list.map((g) => (g.vmid === e.vmid ? { ...g, status: e.status } : g))));
@@ -60,7 +61,7 @@ export default function Guests() {
 
   return (
     <>
-      <PageHeader eyebrow="Datacenter" title="Guests" sub="Containers and virtual machines on your Proxmox node. Select a guest for its summary, hardware, snapshots and task history." />
+      <PageHeader eyebrow="Datacenter" title="Guests" sub="Containers and virtual machines on your Proxmox cluster or node. Select a guest for its summary, hardware, snapshots and task history." />
       <Async q={q} rows={6} h={60} isEmpty={(d) => d.length === 0} empty={{ title: 'No guests found', hint: 'Proxmox returned no containers or VMs.' }}>
         {(list) => {
           const featured = list.find((g) => g.featured);
@@ -69,8 +70,10 @@ export default function Guests() {
             stopped: list.filter((g) => g.status !== 'running').length, lxc: list.filter((g) => g.type === 'lxc').length,
             qemu: list.filter((g) => g.type === 'qemu').length,
           };
+          const nodes = [...new Set(list.map((g) => g.node))].sort();
           const s = search.trim().toLowerCase();
           const rows = list.filter((g) => {
+            if (nodeSel !== 'all' && g.node !== nodeSel) return false;
             if (filter === 'running' && g.status !== 'running') return false;
             if (filter === 'stopped' && g.status === 'running') return false;
             if ((filter === 'lxc' || filter === 'qemu') && g.type !== filter) return false;
@@ -84,6 +87,9 @@ export default function Guests() {
                   { id: 'all', label: 'All', count: counts.all }, { id: 'running', label: 'Running', count: counts.running },
                   { id: 'stopped', label: 'Stopped', count: counts.stopped }, { id: 'lxc', label: 'LXC', count: counts.lxc }, { id: 'qemu', label: 'VM', count: counts.qemu },
                 ]} />
+                {nodes.length > 1 && (
+                  <Chips value={nodeSel} onChange={setNodeSel} options={[{ id: 'all', label: 'All nodes' }, ...nodes.map((n) => ({ id: n, label: n, count: list.filter((g) => g.node === n).length }))]} />
+                )}
               </div>
               <div className="card table">
                 <div className="g-row g-head">
@@ -101,7 +107,7 @@ export default function Guests() {
                       </span>
                       <span className="c-name">
                         <a className="row-link" href={`#/guests/${g.vmid}`}><b>{g.name}</b></a>
-                        <small className="muted">#{g.vmid}{g.tags.slice(0, 3).map((t) => <em key={t} className="tag">{t}</em>)}</small>
+                        <small className="muted">#{g.vmid}{nodes.length > 1 && <em className="tag node-tag" title="Node">{g.node}</em>}{g.tags.slice(0, 3).map((t) => <em key={t} className="tag">{t}</em>)}</small>
                       </span>
                       <span className="c-type"><Badge tone={g.type === 'qemu' ? 'blue' : 'gray'}>{g.type === 'qemu' ? 'VM' : 'LXC'}</Badge></span>
                       <span className="c-status">

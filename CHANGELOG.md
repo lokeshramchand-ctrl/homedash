@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Clusters: guests from every node of a Proxmox cluster, several API addresses per cluster with failover, several clusters or stand-alone nodes with a switcher, a Cluster page (nodes, quorum, load), live/restart migration, node-offline and quorum alerts, and per-node host pages, shutdown and metrics. Single-node installs behave as before.
 - Incident tools: PagerDuty (Events API v2) and Opsgenie open an incident per problem and close it when the recovery arrives. Monitors and the Proxmox API now have stable keys so their recoveries close their own incident.
 - Maintenance windows (one-off or weekly, per kind or text) and alert routing rules (by kind, severity, text, time of day), with a one-click silence from any alert.
 - Access control: teams (per-guest scope by id range or tag), group-to-role/team mapping from OIDC groups and SCIM 2.0 (Users and Groups), live deactivation, personal API tokens, four-eyes approvals for risky actions, passkeys (WebAuthn), and an Access page with people, sessions, tokens and approvals.

@@ -104,6 +104,16 @@ Secrets are written as `${NAME}` in the YAML and kept in `/etc/homedash/secrets.
 
 Roles are `viewer` (read), `operator` (power, snapshots, scenes) and `admin` (databases, logs, nginx changes, host power). `npm run create-user -- <name> <role>` sets one; `--reset-2fa` is the lock-out escape.
 
+### Clusters and nodes
+
+homedash works with a single Proxmox node, a cluster, or several of either.
+
+- **A cluster.** Point `proxmox.url` at any member: the API token works cluster-wide and `/cluster/resources` lists every guest with its node. Give several addresses (`url: [a, b, c]`) and if one member is down the next answers; the Cluster page shows which one is in use. Actions, snapshots, backups and tasks always go to the guest's own node.
+- **Several clusters or stand-alone nodes** (`proxmox.clusters:`): each has its own token, protected guests and settings, and a switcher in the top bar changes which one you are looking at. Scenes, schedules and the audit log are kept per cluster. Teams can be limited to one cluster (`access.teams.<name>.cluster`) because guest ids repeat across clusters.
+- **Node pages.** Node, Health, Capacity and the Overview follow the node picked next to the cluster switcher. Powering a node off asks you to type that node's name.
+- **Migration.** Guest > Migrate lists the nodes a guest can move to and why others cannot. A running VM moves live; a running container is restarted on the target; local disks need an extra tick. It can be put behind approvals with `guest.migrate`.
+- **Watching.** Every node of every cluster is checked for CPU, memory, disk, failed tasks, SMART and services, plus node-offline and lost-quorum alerts (PagerDuty and Opsgenie incidents close when the node returns). With more than one cluster, `/metrics` gains `cluster` and `node` labels; a single cluster keeps exactly the series it always had.
+
 ### Maintenance windows and routing
 
 On the Notifications page: a **maintenance window** (one-off or weekly, optionally limited to some alert kinds or to text such as a service name) holds alerts back while you work. Held-back alerts still appear in the history, and PagerDuty or Opsgenie still close incidents when something recovers. **Routes** (admin) send alerts to chosen channels by kind, severity, text and time of day, for example errors to PagerDuty and warnings to Slack. An alert that matches no route follows the normal channel settings, so a route can never make an alert disappear. The Notifications history has a "Silence for 1 hour" button on each alert.
