@@ -1528,3 +1528,19 @@ a.stat:hover .stat-ic { background: var(--signal-soft); color: var(--signal); bo
 .dt-bk { grid-template-columns: 2.4fr 110px 90px 190px; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .qemu-warn { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; } .qemu-warn:last-child { border-bottom: 0; }
+
+/* ---------- notification channels ---------- */
+.channels { list-style: none; margin: 8px 0 0; padding: 0; }
+.chan { border-top: 1px solid var(--border); padding: 12px 0; }
+.chan:first-child { border-top: 0; }
+.chan-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.chan-main .grow { min-width: 160px; }
+.chan-main p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.chan.off b { color: var(--muted); font-weight: 500; }
+.chan.paused .grow { opacity: .6; }
+.chan-level { width: auto; min-width: 170px; height: 34px; padding: 0 10px; font-size: 13px; }
+.chan-setup { margin-top: 10px; }
+.chan-setup .codebox { min-height: 0; max-height: none; white-space: pre; overflow-x: auto; font-size: 12.5px; }
+.chan-foot { margin: 14px 0 0; }
+.chips-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+@media (max-width: 720px) { .chan-main { gap: 8px; } .chan-level { flex: 1 1 100%; } }

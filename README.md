@@ -92,7 +92,8 @@ Secrets are written as `${NAME}` in the YAML and kept in `/etc/homedash/secrets.
 | LLM server and GPU guard | `llama:`, `gpu_watch:` | LLM server, GPU alerts |
 | Single sign-on | `auth.oidc:` (Keycloak, Authentik, Authelia, Zitadel, Entra ID, Google, Okta...) | login button, roles from `admin_users` / `default_role` |
 | Two-step sign-in | `auth.mfa.enabled` | TOTP with recovery codes |
-| Push alerts, Ask AI | `ntfy:`, `ai:` | notifications, log helper |
+| Alerts | `ntfy:`, `gotify:`, `discord:`, `slack:`, `telegram:`, `email:`, `apprise:`, `webhook:` (any number) | Notifications: per-channel level filter, test button, delivery history |
+| Ask AI | `ai:` | log helper |
 | nginx | `nginx:` incl. `sites_dir`, `conf_dir`, `homedash`, `sites` | Nginx page; vhosts rendered for homedash and your services |
 
 Roles are `viewer` (read), `operator` (power, snapshots, scenes) and `admin` (databases, logs, nginx changes, host power). `npm run create-user -- <name> <role>` sets one; `--reset-2fa` is the lock-out escape.

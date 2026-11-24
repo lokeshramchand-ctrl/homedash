@@ -88,3 +88,30 @@ test('toEnv: metrics.enabled false drops the token', () => {
   const { env } = toEnv({ metrics: { enabled: false } }, {}, { METRICS_TOKEN: 'x' });
   assert.equal(env.METRICS_TOKEN, undefined);
 });
+
+test('toEnv: alert channels map to their variables and are validated', () => {
+  const ok = toEnv({
+    gotify: { url: 'http://g', token: 'k' }, discord: { webhook_url: 'https://discord.com/api/webhooks/1/x' }, slack: { webhook_url: 'https://hooks.slack.com/services/T/B/x' },
+    telegram: { bot_token: '1:a', chat_id: '-100' }, email: { host: 'smtp.example.com', port: 465, secure: true, from: 'a@x.io', to: ['b@x.io', 'c@x.io'] },
+    apprise: { url: 'http://a:8000', urls: ['pover://u@t', 'mailto://x'] }, webhook: { url: 'https://e.io/h', secret: 's' },
+  }, {}, {});
+  assert.deepEqual(ok.problems, []);
+  assert.equal(ok.env.SMTP_TO, 'b@x.io,c@x.io');
+  assert.equal(ok.env.SMTP_SECURE, 'true');
+  assert.equal(ok.env.APPRISE_URLS, 'pover://u@t mailto://x');
+  const on = Object.fromEntries(featureRows(ok.env).map((r) => [r.id, r.on]));
+  for (const id of ['gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook']) assert.equal(on[id], true, id);
+  assert.equal(on.ntfy, false);
+
+  const bad = toEnv({
+    gotify: { url: 'http://g' }, discord: { webhook_url: 'https://evil.example/hook' }, slack: { webhook_url: 'https://evil.example/x' },
+    telegram: { bot_token: '1:a' }, email: { host: 'smtp.example.com' }, apprise: { url: 'http://a:8000' },
+  }, {}, {}).problems.join(' | ');
+  assert.match(bad, /GOTIFY_URL is set but GOTIFY_TOKEN|GOTIFY_TOKEN is missing|GOTIFY_URL.*GOTIFY_TOKEN/);
+  assert.match(bad, /DISCORD_WEBHOOK_URL: must be/);
+  assert.match(bad, /SLACK_WEBHOOK_URL: must be/);
+  assert.match(bad, /TELEGRAM_BOT_TOKEN is set but TELEGRAM_CHAT_ID/);
+  assert.match(bad, /SMTP_HOST is set but SMTP_FROM/);
+  assert.match(bad, /SMTP_HOST is set but SMTP_TO/);
+  assert.match(bad, /neither key nor urls/);
+});

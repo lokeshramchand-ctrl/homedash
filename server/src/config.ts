@@ -174,6 +174,21 @@ export const cfg = {
       .split(',').map((s) => s.trim()).filter(Boolean),
   },
 
+  // More alert channels next to ntfy (see channels.ts). Each one is off until its settings are present.
+  channels: {
+    gotify: { url: trim(env('GOTIFY_URL')), token: env('GOTIFY_TOKEN') },
+    discord: { webhookUrl: env('DISCORD_WEBHOOK_URL'), username: env('DISCORD_USERNAME') },
+    slack: { webhookUrl: env('SLACK_WEBHOOK_URL') },
+    telegram: { botToken: env('TELEGRAM_BOT_TOKEN'), chatId: env('TELEGRAM_CHAT_ID') },
+    email: {
+      host: env('SMTP_HOST'), port: Number(env('SMTP_PORT', '587')), secure: bool('SMTP_SECURE', false), starttls: bool('SMTP_STARTTLS', true),
+      user: env('SMTP_USER'), password: env('SMTP_PASSWORD'), from: env('SMTP_FROM'),
+      to: env('SMTP_TO').split(/[\s,;]+/).filter(Boolean), insecureTls: bool('SMTP_INSECURE_TLS', false),
+    },
+    apprise: { url: trim(env('APPRISE_URL')), key: env('APPRISE_KEY'), urls: env('APPRISE_URLS').split(/\s+/).filter(Boolean), tag: env('APPRISE_TAG') },
+    webhook: { url: env('WEBHOOK_URL'), secret: env('WEBHOOK_SECRET') },
+  },
+
   ai: {
     baseUrl: trim(env('AI_BASE_URL')), // OpenAI-compatible base, e.g. http://192.168.1.x:11434/v1 (Ollama) or https://api.openai.com/v1
     apiKey: env('AI_API_KEY'), // empty for most local servers (Ollama/LM Studio)

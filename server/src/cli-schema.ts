@@ -54,6 +54,14 @@ const ROWS: Row[] = [
 
   R('ntfy.url', 'NTFY_URL'), R('ntfy.public_url', 'NTFY_PUBLIC_URL'), R('ntfy.topic', 'NTFY_TOPIC'), R('ntfy.token', 'NTFY_TOKEN'), R('ntfy.click_url', 'NTFY_CLICK_URL'),
   R('ntfy.alert_cpu', 'ALERT_CPU'), R('ntfy.alert_mem', 'ALERT_MEM'), R('ntfy.alert_disk', 'ALERT_DISK'),
+  R('gotify.url', 'GOTIFY_URL'), R('gotify.token', 'GOTIFY_TOKEN'),
+  R('discord.webhook_url', 'DISCORD_WEBHOOK_URL'), R('discord.username', 'DISCORD_USERNAME'), R('slack.webhook_url', 'SLACK_WEBHOOK_URL'),
+  R('telegram.bot_token', 'TELEGRAM_BOT_TOKEN'), R('telegram.chat_id', 'TELEGRAM_CHAT_ID'),
+  R('email.host', 'SMTP_HOST'), R('email.port', 'SMTP_PORT'), R('email.secure', 'SMTP_SECURE'), R('email.starttls', 'SMTP_STARTTLS'),
+  R('email.user', 'SMTP_USER'), R('email.password', 'SMTP_PASSWORD'), R('email.from', 'SMTP_FROM'), R('email.to', 'SMTP_TO', list(',')),
+  R('email.insecure_tls', 'SMTP_INSECURE_TLS'),
+  R('apprise.url', 'APPRISE_URL'), R('apprise.key', 'APPRISE_KEY'), R('apprise.urls', 'APPRISE_URLS', list(' ')), R('apprise.tag', 'APPRISE_TAG'),
+  R('webhook.url', 'WEBHOOK_URL'), R('webhook.secret', 'WEBHOOK_SECRET'),
   R('ai.base_url', 'AI_BASE_URL'), R('ai.api_key', 'AI_API_KEY'), R('ai.model', 'AI_MODEL'), R('ai.label', 'AI_LABEL'),
 
   R('llama.url', 'LLAMA_URL'), R('llama.api_key', 'LLAMA_API_KEY'), R('llama.agent_url', 'LLAMA_AGENT_URL'), R('llama.agent_token', 'LLAMA_AGENT_TOKEN'),
@@ -74,7 +82,7 @@ const DS_FIELDS: [string, string][] = [
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
-export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'ntfy', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'env'];
+export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'env'];
 
 /**
  * Secrets the tool creates itself and then keeps (generated.env), so re-applying never rotates them.
@@ -158,7 +166,14 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
   };
   pair('PVE_URL', 'PVE_TOKEN_ID', 'proxmox'); pair('PVE_TOKEN_ID', 'PVE_TOKEN_SECRET', 'proxmox'); pair('GRAFANA_URL', 'GRAFANA_TOKEN', 'grafana'); pair('KUMA_URL', 'KUMA_API_KEY', 'kuma');
   pair('NTFY_URL', 'NTFY_TOPIC', 'ntfy'); pair('AI_BASE_URL', 'AI_MODEL', 'ai');
-  for (const k of ['PVE_URL', 'GRAFANA_URL', 'KUMA_URL', 'LOKI_URL', 'PROMETHEUS_URL', 'NTFY_URL', 'AI_BASE_URL', 'LLAMA_URL', 'LLAMA_AGENT_URL', 'GPU_AGENT_URL']) {
+  pair('GOTIFY_URL', 'GOTIFY_TOKEN', 'gotify'); pair('GOTIFY_TOKEN', 'GOTIFY_URL', 'gotify');
+  pair('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'telegram'); pair('TELEGRAM_CHAT_ID', 'TELEGRAM_BOT_TOKEN', 'telegram');
+  pair('SMTP_HOST', 'SMTP_FROM', 'email'); pair('SMTP_HOST', 'SMTP_TO', 'email'); pair('SMTP_USER', 'SMTP_PASSWORD', 'email');
+  if (env.APPRISE_URL && !env.APPRISE_KEY && !env.APPRISE_URLS) problems.push('apprise: APPRISE_URL is set but neither key nor urls is');
+  if (env.DISCORD_WEBHOOK_URL && !/^https:\/\/([a-z]+\.)?discord(app)?\.com\/api\/webhooks\//.test(env.DISCORD_WEBHOOK_URL)) problems.push('DISCORD_WEBHOOK_URL: must be a https://discord.com/api/webhooks/... URL');
+  if (env.SLACK_WEBHOOK_URL && !/^https:\/\/hooks\.slack(-gov)?\.com\//.test(env.SLACK_WEBHOOK_URL)) problems.push('SLACK_WEBHOOK_URL: must be a https://hooks.slack.com/... URL');
+  if (env.SMTP_PORT && !/^\d{1,5}$/.test(env.SMTP_PORT)) problems.push('SMTP_PORT: must be a port number');
+  for (const k of ['PVE_URL', 'GRAFANA_URL', 'KUMA_URL', 'LOKI_URL', 'PROMETHEUS_URL', 'NTFY_URL', 'AI_BASE_URL', 'GOTIFY_URL', 'APPRISE_URL', 'WEBHOOK_URL', 'LLAMA_URL', 'LLAMA_AGENT_URL', 'GPU_AGENT_URL']) {
     if (env[k] && !/^https?:\/\/[^\s/]+/.test(env[k])) problems.push(`${k}: "${env[k]}" is not an http(s) URL`);
   }
   return { env, problems, notes };
@@ -178,7 +193,14 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'data', label: 'Data manager (databases)', on: (env.DATASOURCE_KEY ?? '').length >= 16, hint: 'data.enabled: true or data.connections' },
     { id: 'llama', label: 'LLM server (llama.cpp)', on: has('LLAMA_URL') || has('LLAMA_AGENT_URL'), hint: 'llama.url / agent_url' },
     { id: 'gpu', label: 'GPU mining guard', on: has('GPU_AGENT_URL'), hint: 'gpu_watch.agent_url' },
-    { id: 'ntfy', label: 'ntfy push alerts', on: has('NTFY_URL', 'NTFY_TOPIC'), hint: 'ntfy.url, topic' },
+    { id: 'ntfy', label: 'Alerts: ntfy', on: has('NTFY_URL', 'NTFY_TOPIC'), hint: 'ntfy.url, topic' },
+    { id: 'gotify', label: 'Alerts: Gotify', on: has('GOTIFY_URL', 'GOTIFY_TOKEN'), hint: 'gotify.url, token' },
+    { id: 'discord', label: 'Alerts: Discord', on: has('DISCORD_WEBHOOK_URL'), hint: 'discord.webhook_url' },
+    { id: 'slack', label: 'Alerts: Slack', on: has('SLACK_WEBHOOK_URL'), hint: 'slack.webhook_url' },
+    { id: 'telegram', label: 'Alerts: Telegram', on: has('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'), hint: 'telegram.bot_token, chat_id' },
+    { id: 'email', label: 'Alerts: e-mail (SMTP)', on: has('SMTP_HOST', 'SMTP_FROM', 'SMTP_TO'), hint: 'email.host, from, to' },
+    { id: 'apprise', label: 'Alerts: Apprise', on: has('APPRISE_URL') && (has('APPRISE_KEY') || has('APPRISE_URLS')), hint: 'apprise.url + key or urls' },
+    { id: 'webhook', label: 'Alerts: JSON webhook', on: has('WEBHOOK_URL'), hint: 'webhook.url' },
     { id: 'ai', label: 'Ask AI log helper', on: has('AI_BASE_URL', 'AI_MODEL'), hint: 'ai.base_url, model' },
     { id: 'sso', label: 'OIDC single sign-on', on: has('OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_REDIRECT_URI') && (has('OIDC_ALLOWED_USERS') || has('OIDC_REQUIRED_ROLE')), hint: 'auth.oidc.* incl. allowed_users or required_role' },
     { id: 'mfa', label: 'Two-step sign-in (TOTP)', on: (env.MFA_KEY ?? '').length >= 32, hint: 'auth.mfa.enabled: true' },

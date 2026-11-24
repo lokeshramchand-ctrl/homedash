@@ -1,8 +1,11 @@
-// Push alerts to ntfy. Fed by logEvent() (every warn/error and recovery) plus a watcher for
+// Push alerts to every configured channel (ntfy, Gotify, Discord, Slack, Telegram, e-mail, Apprise, webhook; see
+// channels.ts). Fed by logEvent() (every warn/error and recovery) plus a watcher for
 // host resources, failed Proxmox tasks, disk health and stopped PVE services.
 import type { FastifyInstance } from 'fastify';
 import { crowdsecWatch } from './crowdsec.js';
-import { cfg, ntfyConfigured, pveConfigured } from './config.js';
+import { CHANNELS, anyChannelConfigured, channelById } from './channels.js';
+import type { Level, Msg } from './channels.js';
+import { cfg, pveConfigured } from './config.js';
 import { getState, setState } from './db.js';
 import type { EventRow } from './db.js';
 import { HttpError, notConfigured } from './errors.js';
@@ -12,11 +15,20 @@ import { pve } from './proxmox.js';
 
 export const CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gpu', 'hardware', 'disks', 'services', 'crowdsec', 'db', 'app', 'auth'] as const;
 type Category = (typeof CATEGORIES)[number];
-interface Settings { enabled: boolean; categories: Record<Category, boolean>; recoveries: boolean; mutedUntil: string | null }
-const DEFAULTS: Settings = { enabled: true, categories: Object.fromEntries(CATEGORIES.map((c) => [c, true])) as Record<Category, boolean>, recoveries: true, mutedUntil: null };
+interface ChannelPref { enabled: boolean; minLevel: Level }
+interface Settings { enabled: boolean; categories: Record<Category, boolean>; recoveries: boolean; mutedUntil: string | null; channels: Record<string, ChannelPref> }
+// E-mail defaults to warnings and errors only so recovery notices do not fill an inbox; everything else gets everything.
+const defaultPref = (id: string): ChannelPref => ({ enabled: true, minLevel: id === 'email' ? 'warn' : 'info' });
+const DEFAULTS: Settings = {
+  enabled: true, categories: Object.fromEntries(CATEGORIES.map((c) => [c, true])) as Record<Category, boolean>, recoveries: true, mutedUntil: null,
+  channels: Object.fromEntries(CHANNELS.map((c) => [c.id, defaultPref(c.id)])),
+};
+const RANK: Record<Level, number> = { info: 0, warn: 1, error: 2 };
+const isLevel = (v: unknown): v is Level => v === 'info' || v === 'warn' || v === 'error';
 
 let settings: Settings = DEFAULTS;
-interface Sent { ts: string; title: string; message: string; priority: number; category: Category; ok: boolean; error?: string }
+interface Delivery { channel: string; ok: boolean; error?: string }
+interface Sent { ts: string; title: string; message: string; priority: number; category: Category; ok: boolean; error?: string; deliveries: Delivery[] }
 const sent: Sent[] = [];
 const lastByKey = new Map<string, number>();
 let hourStart = Date.now(), hourCount = 0;
@@ -25,25 +37,32 @@ const DEDUPE_MS = 10 * 60_000, MAX_PER_HOUR = 40;
 async function loadSettings() {
   try {
     const v = getState('notify-settings') as Partial<Settings> | undefined;
-    if (v) settings = { ...DEFAULTS, ...v, categories: { ...DEFAULTS.categories, ...(v.categories ?? {}) } };
+    if (v) settings = { ...DEFAULTS, ...v, categories: { ...DEFAULTS.categories, ...(v.categories ?? {}) }, channels: { ...DEFAULTS.channels, ...(v.channels ?? {}) } };
   } catch { /* keep defaults if the database is unavailable */ }
 }
 
-async function publish(title: string, message: string, priority: number, tags: string[]) {
-  const res = await fetch(`${cfg.ntfy.url}/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(cfg.ntfy.token ? { Authorization: `Bearer ${cfg.ntfy.token}` } : {}) },
-    body: JSON.stringify({ topic: cfg.ntfy.topic, title, message, priority, tags, ...(cfg.ntfy.clickUrl ? { click: cfg.ntfy.clickUrl } : {}) }),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`ntfy ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)}`);
+/** Channels that should receive a message of this level right now. */
+const targetsFor = (level: Level) => CHANNELS.filter((c) => c.configured() && (settings.channels[c.id] ?? defaultPref(c.id)).enabled && RANK[level] >= RANK[(settings.channels[c.id] ?? defaultPref(c.id)).minLevel]);
+
+/** Delivers to the given channels in parallel; one failing channel never blocks the others. */
+async function deliver(channels: typeof CHANNELS, m: Msg): Promise<Delivery[]> {
+  const results = await Promise.allSettled(channels.map((c) => c.send(m)));
+  return results.map((r, i) => (r.status === 'fulfilled' ? { channel: channels[i].id, ok: true } : { channel: channels[i].id, ok: false, error: (r.reason as Error).message }));
 }
+
+const record = (rec: Omit<Sent, 'ok' | 'error'> & { deliveries: Delivery[] }) => {
+  const failed = rec.deliveries.filter((d) => !d.ok);
+  sent.unshift({ ...rec, ok: failed.length === 0, ...(failed.length ? { error: failed.map((d) => `${d.channel}: ${d.error}`).join(' · ') } : {}) });
+  if (sent.length > 100) sent.pop();
+};
 
 /** Queue one alert. Duplicate keys within 10 minutes and anything past the hourly cap are dropped. */
 export function alert(category: Category, level: EventRow['level'], title: string, message: string, key = `${category}|${title}|${message}`) {
-  if (!ntfyConfigured() || !settings.enabled || !settings.categories[category]) return;
+  if (!anyChannelConfigured() || !settings.enabled || !settings.categories[category]) return;
   if (level === 'info' && !settings.recoveries) return;
   if (settings.mutedUntil && new Date(settings.mutedUntil).getTime() > Date.now()) return;
+  const targets = targetsFor(level);
+  if (!targets.length) return;
   const now = Date.now();
   if ((lastByKey.get(key) ?? 0) > now - DEDUPE_MS) return;
   if (now - hourStart > 3600_000) { hourStart = now; hourCount = 0; }
@@ -51,11 +70,8 @@ export function alert(category: Category, level: EventRow['level'], title: strin
   lastByKey.set(key, now);
   const priority = level === 'error' ? 5 : level === 'warn' ? 4 : 2;
   const tags = level === 'error' ? ['rotating_light'] : level === 'warn' ? ['warning'] : ['white_check_mark'];
-  const rec: Sent = { ts: new Date().toISOString(), title, message, priority, category, ok: true };
-  void publish(title, message, priority, tags).catch((e) => { rec.ok = false; rec.error = (e as Error).message; }).finally(() => {
-    sent.unshift(rec);
-    if (sent.length > 100) sent.pop();
-  });
+  const msg: Msg = { title, message, level, category, priority, tags, clickUrl: cfg.ntfy.clickUrl || undefined };
+  void deliver(targets, msg).then((deliveries) => record({ ts: new Date().toISOString(), title, message, priority, category, deliveries }));
 }
 
 const TITLES: Record<EventRow['source'], string> = { app: 'Dashboard', db: 'Database', host: 'Proxmox host', guest: 'Guest', monitor: 'Uptime monitor', auth: 'Sign-in' };
@@ -182,7 +198,7 @@ async function watchCrowdsec() {
 
 export function startNotify(app: FastifyInstance) {
   void loadSettings();
-  if (!ntfyConfigured()) { app.log.warn('ntfy not configured; push alerts disabled'); return; }
+  if (!anyChannelConfigured()) { app.log.warn('no alert channel configured; push alerts disabled'); return; }
   const t = setInterval(() => {
     watch().catch((e) => app.log.warn({ err: (e as Error).message }, 'notify watch failed'));
     watchCrowdsec().catch((e) => app.log.warn({ err: (e as Error).message }, 'crowdsec watch failed'));
@@ -193,18 +209,25 @@ export function startNotify(app: FastifyInstance) {
 }
 
 export function registerNotify(app: FastifyInstance) {
+  const channelInfo = () => CHANNELS.map((c) => {
+    const pref = settings.channels[c.id] ?? defaultPref(c.id);
+    const configured = c.configured();
+    return { id: c.id, label: c.label, needs: c.needs, configured, target: configured ? c.target() : '', enabled: pref.enabled, minLevel: pref.minLevel };
+  });
+
   app.get('/api/notify', async () => ({
-    configured: ntfyConfigured(),
+    configured: anyChannelConfigured(),
+    channels: channelInfo(),
     server: cfg.ntfy.publicUrl || cfg.ntfy.url,
-    topic: ntfyConfigured() ? cfg.ntfy.topic : '',
-    subscribeUrl: ntfyConfigured() ? `${cfg.ntfy.publicUrl || cfg.ntfy.url}/${cfg.ntfy.topic}` : '',
+    topic: cfg.ntfy.topic,
+    subscribeUrl: cfg.ntfy.url && cfg.ntfy.topic ? `${cfg.ntfy.publicUrl || cfg.ntfy.url}/${cfg.ntfy.topic}` : '',
     thresholds: { cpu: cfg.ntfy.cpuLimit, mem: cfg.ntfy.memLimit, disk: cfg.ntfy.diskLimit },
     settings, categories: CATEGORIES, sent,
   }));
 
-  app.post<{ Body: Partial<Settings> }>('/api/notify/settings', async (req) => {
+  app.post<{ Body: Partial<Omit<Settings, 'channels'>> & { channels?: Record<string, Partial<ChannelPref>> } }>('/api/notify/settings', async (req) => {
     const b = req.body ?? {};
-    const next: Settings = { ...settings };
+    const next: Settings = { ...settings, channels: { ...settings.channels } };
     if (typeof b.enabled === 'boolean') next.enabled = b.enabled;
     if (typeof b.recoveries === 'boolean') next.recoveries = b.recoveries;
     if (b.mutedUntil === null || (typeof b.mutedUntil === 'string' && !Number.isNaN(Date.parse(b.mutedUntil)))) next.mutedUntil = b.mutedUntil;
@@ -212,20 +235,37 @@ export function registerNotify(app: FastifyInstance) {
       next.categories = { ...next.categories };
       for (const c of CATEGORIES) if (typeof b.categories[c] === 'boolean') next.categories[c] = b.categories[c];
     }
+    if (b.channels && typeof b.channels === 'object') {
+      for (const [id, p] of Object.entries(b.channels)) {
+        if (!channelById(id) || !p || typeof p !== 'object') continue;
+        const cur = next.channels[id] ?? defaultPref(id);
+        next.channels[id] = { enabled: typeof p.enabled === 'boolean' ? p.enabled : cur.enabled, minLevel: isLevel(p.minLevel) ? p.minLevel : cur.minLevel };
+      }
+    }
     setState('notify-settings', next as unknown as Record<string, unknown>);
     settings = next;
     req.log.info({ user: req.user?.username }, 'notify settings changed');
     return next;
   });
 
-  app.post('/api/notify/test', async (req) => {
-    if (!ntfyConfigured()) throw notConfigured('ntfy');
-    try {
-      await publish('homedash test', `Test notification sent by ${req.user?.username ?? 'admin'}. Alerts reach this topic.`, 3, ['bell']);
-    } catch (e) {
-      throw new HttpError(502, 'NTFY_ERROR', (e as Error).message);
+  // Test one channel (even if muted or filtered out, so you can check credentials) or every enabled one.
+  app.post<{ Body: { channel?: string } }>('/api/notify/test', async (req) => {
+    const id = req.body?.channel;
+    let targets: typeof CHANNELS;
+    if (id) {
+      const c = channelById(id);
+      if (!c) throw new HttpError(404, 'NOT_FOUND', `Unknown channel "${id}"`);
+      if (!c.configured()) throw notConfigured(c.label);
+      targets = [c];
+    } else {
+      targets = CHANNELS.filter((c) => c.configured() && (settings.channels[c.id] ?? defaultPref(c.id)).enabled);
+      if (!targets.length) throw notConfigured('An alert channel');
     }
-    sent.unshift({ ts: new Date().toISOString(), title: 'homedash test', message: 'Test notification', priority: 3, category: 'app', ok: true });
-    return { ok: true };
+    const who = req.user?.username ?? 'admin';
+    const msg: Msg = { title: 'homedash test', message: `Test notification sent by ${who}. If you can read this, alerts reach this channel.`, level: 'info', category: 'app', priority: 3, tags: ['bell'], clickUrl: cfg.ntfy.clickUrl || undefined };
+    const deliveries = await deliver(targets, msg);
+    record({ ts: new Date().toISOString(), title: 'homedash test', message: 'Test notification', priority: 3, category: 'app', deliveries });
+    req.log.info({ user: who, channels: deliveries.map((d) => `${d.channel}:${d.ok ? 'ok' : 'fail'}`) }, 'notify test');
+    return { ok: deliveries.every((d) => d.ok), deliveries };
   });
 }

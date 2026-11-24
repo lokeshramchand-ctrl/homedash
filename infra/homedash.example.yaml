@@ -70,11 +70,40 @@ auth:
 #   snapshot: /var/lib/homedash/crowdsec/state.json
 #   central_name: crowdsec                    # Prometheus instance_name of the central engine
 #   host_name: pve-host                       # machine name of the Proxmox host's own engine
+# ---------------------------------------------------------------- alert channels (use any number of them)
+# Alerts go to every channel below that is set up. Pick which alerts each one gets on the Notifications page.
 # ntfy:
 #   url: http://192.168.1.20
 #   topic: homedash-8f3a9c                    # keep it unguessable
 #   token: ${NTFY_TOKEN}
-#   alert_cpu: 0.9
+#   alert_cpu: 0.9                            # resource thresholds apply to all channels
+# gotify:
+#   url: http://192.168.1.21
+#   token: ${GOTIFY_TOKEN}                    # an application token
+# discord:
+#   webhook_url: ${DISCORD_WEBHOOK}           # https://discord.com/api/webhooks/...
+#   username: homedash
+# slack:
+#   webhook_url: ${SLACK_WEBHOOK}             # https://hooks.slack.com/services/...
+# telegram:
+#   bot_token: ${TELEGRAM_TOKEN}              # from @BotFather
+#   chat_id: "-1001234567890"
+# email:                                      # warnings and errors only by default (changeable per channel in the UI)
+#   host: smtp.example.com
+#   port: 587                                 # 465 with secure: true
+#   starttls: true
+#   user: alerts@example.com
+#   password: ${SMTP_PASSWORD}
+#   from: homedash@example.com
+#   to: [me@example.com, ops@example.com]
+# apprise:                                    # an Apprise API server fans out to ~80 services
+#   url: http://192.168.1.22:8000
+#   key: homedash                             # a saved Apprise configuration key ...
+#   # urls: ["pover://user@token"]            # ... or stateless: the service URLs to notify
+#   # tag: homelab
+# webhook:                                    # anything else: POSTs JSON {source, title, message, level, category, ...}
+#   url: https://example.com/hooks/homedash
+#   secret: ${WEBHOOK_SECRET}                 # sent as a Bearer token
 # ai:                                         # Ask AI on log lines; any OpenAI-compatible endpoint
 #   base_url: http://192.168.1.30:11434/v1    # e.g. Ollama
 #   model: llama3.1

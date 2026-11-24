@@ -131,12 +131,16 @@ export interface GuestStatusDetail extends Guest {
 }
 export interface ConfigRow { key: string; value: string | null; pending: string | null; delete: boolean }
 export interface Snapshot { name: string; parent: string | null; description: string; time: number | null; vmstate: boolean; current: boolean }
-export interface NotifySettings { enabled: boolean; recoveries: boolean; mutedUntil: string | null; categories: Record<string, boolean> }
+export type AlertLevel = 'info' | 'warn' | 'error';
+export interface ChannelPref { enabled: boolean; minLevel: AlertLevel }
+export interface NotifyChannel { id: string; label: string; needs: string; configured: boolean; target: string; enabled: boolean; minLevel: AlertLevel }
+export interface NotifySettings { enabled: boolean; recoveries: boolean; mutedUntil: string | null; categories: Record<string, boolean>; channels: Record<string, ChannelPref> }
+export interface NotifyDelivery { channel: string; ok: boolean; error?: string }
 export interface NotifyInfo {
-  configured: boolean; server: string; topic: string; subscribeUrl: string;
+  configured: boolean; channels: NotifyChannel[]; server: string; topic: string; subscribeUrl: string;
   thresholds: { cpu: number; mem: number; disk: number };
   settings: NotifySettings; categories: string[];
-  sent: { ts: string; title: string; message: string; priority: number; category: string; ok: boolean; error?: string }[];
+  sent: { ts: string; title: string; message: string; priority: number; category: string; ok: boolean; error?: string; deliveries: NotifyDelivery[] }[];
 }
 
 export type LogKind = 'start' | 'stop' | 'lifecycle' | 'start-failed' | 'crash' | 'oom' | 'gpu' | 'agent' | 'hardware' | 'error' | 'info';
@@ -345,5 +349,5 @@ export interface CsAlert {
 /** Which optional integrations the server has switched on (GET /api/features). */
 export interface Features {
   proxmox: boolean; grafana: boolean; kuma: boolean; loki: boolean; crowdsec: boolean; data: boolean; llama: boolean; gpuWatch: boolean;
-  ntfy: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
+  ntfy: boolean; alerts: boolean; ai: boolean; sso: boolean; mfa: boolean; nginxManage: boolean; metrics: boolean;
 }
