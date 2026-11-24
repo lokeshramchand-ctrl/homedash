@@ -58,5 +58,5 @@ test('yaml: status_page validated; pbs tile needs a token', () => {
   assert.ok(toEnv({ status_page: { enabled: true } }, {}, {}).problems.some((p) => /shows nothing|lists no/.test(p) || /would show nothing/.test(p)));
   const ok = toEnv({ status_page: { enabled: true, tiles: ['*'] }, tiles: [{ kind: 'pbs', url: 'http://pbs:8007', token: 'u@pbs!t:s' }] }, {}, {});
   assert.deepEqual(ok.problems, []); assert.equal(JSON.parse(ok.env.STATUS_PAGE).enabled, true);
-  assert.ok(toEnv({ tiles: [{ kind: 'pbs', url: 'http://pbs:8007' }] }, {}, {}).problems.some((p) => /pbs needs an API token/.test(p)));
+  assert.ok(toEnv({ tiles: [{ kind: 'pbs', url: 'http://pbs:8007' }] }, {}, {}).problems.some((p) => /pbs needs token/.test(p)));
 });
