@@ -7,3 +7,7 @@ Type=oneshot
 EnvironmentFile=-/etc/homedash/host.env
 ExecStart=/usr/local/sbin/homedash-crowdsec-snapshot
 Nice=10
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+TimeoutStartSec=120

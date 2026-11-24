@@ -274,7 +274,7 @@ export interface DbInfo { summary: Record<string, string | number | null>; secti
 export interface DbActivity { supported: boolean; sessions: Record<string, unknown>[]; slow?: Record<string, unknown>[]; note?: string }
 export interface DbAuditRow { ts: string; user: string; ip: string; connection?: string; action: string; detail?: string; result: 'ok' | 'refused' | 'error'; ms?: number; rows?: number }
 
-// ---------- llama.cpp server (VM 100) ----------
+// ---------- llama.cpp server (Windows VM) ----------
 export type LlamaState = 'running' | 'loading' | 'starting' | 'stopped' | 'vm-off' | 'agent-offline' | 'unknown' | 'error';
 export interface LlamaSettings {
   ctx?: number; ngl?: number; parallel?: number; threads?: number; batch?: number; ubatch?: number;

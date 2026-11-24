@@ -122,9 +122,9 @@ function Overview({ q }: { q: Q }) {
             <Card>
               <CardHead title="How CrowdSec protects the lab" sub="Logs in, bans out. Each engine reads logs; one central list feeds every bouncer." />
               <div className="opn-flow cs-flow">
-                <div className="opn-node"><p className="eyebrow">1 · Read logs</p><b>Two engines</b><small className="muted">Host: nginx and SSH · CT 126: hub</small></div>
+                <div className="opn-node"><p className="eyebrow">1 · Read logs</p><b>Two engines</b><small className="muted">Host: nginx and SSH · central engine: hub</small></div>
                 <div className="opn-link"><span>attacks</span><i /></div>
-                <div className="opn-node opn-core"><p className="eyebrow">2 · Decide</p><b>CT 126 decision list</b><small className="muted">{c.decisions.localCount} local bans + {compact(c.decisions.communityTotal)} community addresses</small></div>
+                <div className="opn-node opn-core"><p className="eyebrow">2 · Decide</p><b>Central decision list</b><small className="muted">{c.decisions.localCount} local bans + {compact(c.decisions.communityTotal)} community addresses</small></div>
                 <div className="opn-link"><span>bans</span><i /></div>
                 <div className="opn-node"><p className="eyebrow">3 · Block</p><b>Host bouncer</b><small className="muted">Host iptables protects the Proxmox host</small></div>
               </div>
@@ -158,7 +158,7 @@ function Bans({ q }: { q: Q }) {
                       <span>{nice(b.scenario)}<small className="muted block">{b.events} events</small></span>
                       <span><Badge tone="red" dot>{b.remainingSec > 0 ? fmtUptime(b.remainingSec) : 'expiring'}</Badge></span>
                       <span className="muted">{timeAgo(b.createdAt)}</span>
-                      <span className="muted">{b.machine === 'pve-host' ? 'Proxmox host' : b.machine.length > 20 ? 'CT 126' : b.machine}</span>
+                      <span className="muted">{b.machine.length > 20 ? 'central engine' : b.machine}</span>
                     </div>
                   ))}
                 </div>
@@ -200,7 +200,7 @@ function Detections({ q }: { q: Q }) {
                 <span className="muted" title={new Date(a.createdAt).toLocaleString()}>{timeAgo(a.createdAt)}</span>
                 <span><b>{a.ip}</b>{a.asName && <small className="muted block">{a.asName}</small>}</span>
                 <span>{where(a.country)}</span>
-                <span>{nice(a.scenario)}<small className="muted block">{a.machine === 'pve-host' ? 'seen on the Proxmox host' : 'seen by ' + (a.machine.length > 20 ? 'CT 126' : a.machine)}</small></span>
+                <span>{nice(a.scenario)}<small className="muted block">{'seen by ' + (a.machine.length > 20 ? 'the central engine' : a.machine)}</small></span>
                 <span>{a.events}</span>
                 <span>{a.decision ? (a.decision.remainingSec > 0 ? <Badge tone="red" dot>banned · {fmtUptime(a.decision.remainingSec)} left</Badge> : <Badge tone="gray">ban expired</Badge>) : <Badge tone="gray">no ban</Badge>}</span>
               </div>
@@ -208,7 +208,7 @@ function Detections({ q }: { q: Q }) {
           </div>
         )}
       </Async>
-      <p className="muted small">Detections are kept for 7 days here. Each one was reported by an engine to the central decision list on CT 126.</p>
+      <p className="muted small">Detections are kept for 7 days here. Each one was reported by an engine to the central decision list.</p>
     </>
   );
 }
@@ -238,16 +238,16 @@ function Engines({ q }: { q: Q }) {
               <div className="table flat">
                 <div className="dt-row dt-cb g-head"><span>Bouncer</span><span>Where</span><span>Last pull</span></div>
                 {c.bouncers.map((b) => (
-                  <div key={b.name} className="dt-row dt-cb"><span><b>{b.name}</b><small className="muted block">{b.type}</small></span><span className="muted">{b.ip === '127.0.0.1' ? 'CT 126 itself' : b.ip === '10.10.10.1' ? 'Proxmox host (iptables)' : b.ip}</span><span><Badge tone={b.revoked ? 'gray' : ageTone(b.ageSec)} dot>{b.revoked ? 'revoked' : ageText(b.ageSec)}</Badge></span></div>
+                  <div key={b.name} className="dt-row dt-cb"><span><b>{b.name}</b><small className="muted block">{b.type}</small></span><span className="muted">{b.ip === '127.0.0.1' ? 'local to the engine' : b.ip}</span><span><Badge tone={b.revoked ? 'gray' : ageTone(b.ageSec)} dot>{b.revoked ? 'revoked' : ageText(b.ageSec)}</Badge></span></div>
                 ))}
               </div>
             </Card>
             <Card>
-              <CardHead title="Engines reporting to CT 126" sub="Agents that send detections to the central list" />
+              <CardHead title="Engines reporting to the central list" sub="Agents that send detections to the central list" />
               <div className="table flat">
                 <div className="dt-row dt-cb g-head"><span>Engine</span><span>Address</span><span>Heartbeat</span></div>
                 {c.machines.map((m) => (
-                  <div key={m.name} className="dt-row dt-cb"><span><b>{m.name.length > 20 ? 'CT 126 (central)' : m.name}</b><small className="muted block">{m.version.replace(/-.*/, '')}{m.features.length ? ` · ${m.features.join(', ')}` : ''}</small></span><span className="muted">{m.ip}</span><span><Badge tone={ageTone(m.ageSec)} dot>{ageText(m.ageSec)}</Badge></span></div>
+                  <div key={m.name} className="dt-row dt-cb"><span><b>{m.name.length > 20 ? 'central engine' : m.name}</b><small className="muted block">{m.version.replace(/-.*/, '')}{m.features.length ? ` · ${m.features.join(', ')}` : ''}</small></span><span className="muted">{m.ip}</span><span><Badge tone={ageTone(m.ageSec)} dot>{ageText(m.ageSec)}</Badge></span></div>
                 ))}
               </div>
             </Card>

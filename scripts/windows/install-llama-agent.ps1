@@ -3,9 +3,9 @@
 #     powershell -ExecutionPolicy Bypass -File .\install-llama-agent.ps1
 # Safe to run again (it updates the script, keeps the token, re-registers the task).
 param(
-  [string]$Root = 'C:\LlamaCPP-AI-cuda13',
+  [string]$Root = 'C:\llama.cpp',
   [int]$Port = 8090,
-  [string]$DashboardHost = '192.168.1.17'   # the Proxmox host; the only machine allowed to reach the agent
+  [Parameter(Mandatory = $true)][string]$DashboardHost   # IP of the machine running homedash (container or host): the only one allowed to reach the agent
 )
 $ErrorActionPreference = 'Stop'
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -46,6 +46,6 @@ try {
   Write-Warning "The agent did not answer yet: $($_.Exception.Message). Check $agentDir\agent.log"
 }
 Write-Host ''
-Write-Host 'Put these two lines in the dashboard server .env (/root/web-host/app/server/.env):'
-Write-Host "  LLAMA_AGENT_URL=http://$((Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like '192.168.1.*' } | Select-Object -First 1).IPAddress):$Port"
-Write-Host "  LLAMA_AGENT_TOKEN=$tok"
+Write-Host 'Put these in /etc/homedash/homedash.yaml under llama:, then run homedash-config apply --restart (or set the variables in server/.env):'
+Write-Host "  agent_url: http://$((Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1).IPAddress):$Port"
+Write-Host "  agent_token: $tok"

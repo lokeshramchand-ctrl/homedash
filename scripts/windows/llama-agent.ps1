@@ -1,6 +1,6 @@
 # llama-agent.ps1: a small control agent for llama-server on the Windows VM (set its VM id in LLAMA_VMID).
 #
-# The dashboard backend (on the Proxmox host, 192.168.1.17) calls it to start, stop and switch
+# The dashboard backend (the machine running homedash) calls it to start, stop and switch
 # models. It does a fixed set of things only; it never runs arbitrary commands.
 #
 #   GET  /status              process, launch settings, GPU (nvidia-smi), autostart flag
@@ -16,9 +16,9 @@
 # to the Proxmox host). Windows PowerShell 5.1 compatible.
 param(
   [int]$Port = 8090,
-  [string]$Root = 'C:\LlamaCPP-AI-cuda13',
-  [string]$AgentDir = 'C:\LlamaCPP-AI-cuda13\agent',
-  [string[]]$ModelDirs = @('C:\LlamaCPP-AI-cuda13\models', 'C:\Users\pc\.cache\huggingface\hub', 'C:\Users\pc\.llama\models'),
+  [string]$Root = 'C:\llama.cpp',
+  [string]$AgentDir = 'C:\llama.cpp\agent',
+  [string[]]$ModelDirs = @('C:\llama.cpp\models', "$env:USERPROFILE\.cache\huggingface\hub", "$env:USERPROFILE\.llama\models"),
   [int]$LlamaPort = 8081,
   [string]$LlamaHost = '0.0.0.0'
 )

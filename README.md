@@ -26,10 +26,10 @@ Open `http://<container-ip>:3000` and sign in with the admin login printed at th
 homedash needs an API token. On the Proxmox host:
 
 ```bash
-bash tools/pve/create-token.sh        # asks for confirmation, then prints the token
+bash tools/pve/create-token.sh        # read-only token; add --write-access for power actions
 ```
 
-It grants `PVEAuditor` (read) and `PVEVMUser` (start, stop, reboot). Edit `ROLES` in the script for a read-only dashboard.
+It grants `PVEAuditor` (read); `--write-access` also grants `PVEVMUser` (start, stop, reboot, snapshots).
 
 ### Customise the install
 
@@ -69,6 +69,58 @@ Every option is documented in [`server/.env.example`](server/.env.example): prot
 ### Update
 
 Run the same command again inside the container, or from the host: `pct enter <ctid>` then `update`. Settings and the database (`/opt/homedash/data`) are kept.
+
+## Configuration
+
+Everything is switched on from one file inside the container, `/etc/homedash/homedash.yaml`. Leave an integration out and it stays off; its page does not appear.
+
+```bash
+homedash-config validate          # which features would be on, and what is wrong
+homedash-config apply --restart   # render server/.env, nginx vhosts and the add-on files, then restart
+homedash-config status            # validate + is the server answering
+```
+
+Secrets are written as `${NAME}` in the YAML and kept in `/etc/homedash/secrets.env` (mode 600), so the YAML can be shared. The MFA, Data-manager and `/metrics` keys are generated once and kept in `/etc/homedash/generated.env`, so applying again never rotates them. `.env` is rewritten only between its `managed` markers; lines you added by hand are kept. Every option, commented, is in [`infra/homedash.example.yaml`](infra/homedash.example.yaml), and the raw variables are in [`server/.env.example`](server/.env.example).
+
+| Feature | Switch it on with | Page / effect |
+|---|---|---|
+| Proxmox guests, node, health, backups | `proxmox:` url, node, token | Guests, Node, Health, Protection, Capacity |
+| Grafana, Uptime Kuma | `grafana:`, `kuma:` | Grafana, Uptime |
+| Loki logs | `loki.url` | Logs > Analytics and Loki search |
+| CrowdSec | `crowdsec.snapshot` + `addons.crowdsec` | CrowdSec, ntfy ban alerts |
+| Databases | `data.enabled` or `data.connections` | Data (MongoDB, Redis, PostgreSQL, MySQL, SQL Server, SQLite, Milvus) |
+| LLM server and GPU guard | `llama:`, `gpu_watch:` | LLM server, GPU alerts |
+| Single sign-on | `auth.oidc:` (Keycloak, Authentik, Authelia, Zitadel, Entra ID, Google, Okta...) | login button, roles from `admin_users` / `default_role` |
+| Two-step sign-in | `auth.mfa.enabled` | TOTP with recovery codes |
+| Push alerts, Ask AI | `ntfy:`, `ai:` | notifications, log helper |
+| nginx | `nginx:` incl. `sites_dir`, `conf_dir`, `homedash`, `sites` | Nginx page; vhosts rendered for homedash and your services |
+
+Roles are `viewer` (read), `operator` (power, snapshots, scenes) and `admin` (databases, logs, nginx changes, host power). `npm run create-user -- <name> <role>` sets one; `--reset-2fa` is the lock-out escape.
+
+### Add-ons around homedash
+
+`addons:` in the YAML renders files into `/etc/homedash/rendered/`:
+
+| Add-on | Renders | Where it goes |
+|---|---|---|
+| `alloy` | Alloy config, guest-journal generator, units, nginx JSON log format | Proxmox host |
+| `crowdsec` | snapshot script and timer | Proxmox host |
+| `prometheus` | `prometheus.yml` (with the homedash scrape job), node-exporter listen address | Prometheus container / host |
+| `loki_server` | `loki-config.yml` (retention) | Loki container |
+| `grafana.provision` | datasources, dashboard provider, CrowdSec dashboard | Grafana container |
+
+The host ones are installed by a script that you run yourself on the Proxmox host. It asks before each step (`--yes` to skip the questions, `--dry-run` to see what would happen), backs up every file it replaces to `/var/backups/homedash`, is safe to re-run and logs to `/var/log/homedash-host.log`:
+
+```bash
+git clone https://github.com/lokeshramchand-ctrl/homedash && cd homedash
+bash tools/pve/host-addons.sh <homedash-ctid>
+```
+
+### Safety notes
+
+- The container is unprivileged. Nothing is changed on the Proxmox host unless you run the scripts in `tools/pve/`, and they read before they write: Proxmox VE check, free disk, network, confirmation, backup.
+- `tools/pve/create-token.sh` creates a privilege-separated token with `PVEAuditor` only. `--write-access` adds power actions, `--path /pool/lab` limits it to one pool. An existing token is never rotated.
+- Read scripts before running them; do not pipe a URL into `bash` on a production host.
 
 ## Grafana
 
