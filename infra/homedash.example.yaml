@@ -321,3 +321,18 @@ addons:
 #     - name: Weekly patching
 #       weekly: { days: [sun], start: "22:00", minutes: 120 }
 #       categories: [tasks, guest]
+
+# Public status page at /status and /status.json (no sign-in). Shows only what you list, as operational / degraded /
+# outage: no addresses, errors or numbers. Expose only /status* through your reverse proxy if it faces the internet.
+# status_page:
+#   enabled: true
+#   title: Home lab status
+#   message: Planned maintenance is announced here.
+#   tiles: [pihole, jellyfin]        # tile ids, or "*" for all
+#   monitors: ["Website"]            # Uptime Kuma monitor names, or "*"
+#
+# Proxmox Backup Server tile (a read-only API token with Datastore.Audit and Sys.Audit):
+#   - kind: pbs
+#     url: https://192.0.2.20:8007
+#     token: ${PBS_TOKEN}            # user@pbs!tokenname:secret
+#     insecure_tls: true

@@ -143,11 +143,11 @@ function clusterConfigs(): ClusterCfg[] {
 }
 /** A status tile (Services page): one read-only integration polled in the background. See tiles.ts. */
 export interface TileCfg {
-  id: string; kind: 'docker' | 'portainer' | 'pihole' | 'npm' | 'jellyfin' | 'homeassistant' | 'http'; name: string;
+  id: string; kind: 'docker' | 'portainer' | 'pihole' | 'npm' | 'jellyfin' | 'homeassistant' | 'pbs' | 'http'; name: string;
   url: string; publicUrl: string; group: string; token: string; username: string; password: string; insecureTls: boolean;
   pollSeconds: number; path: string; stats: { label: string; path: string }[];
 }
-const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'http'];
+const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'pbs', 'http'];
 function tileConfigs(): TileCfg[] {
   const raw = env('TILES');
   if (!raw) return [];
@@ -173,6 +173,11 @@ function tileConfigs(): TileCfg[] {
   return out;
 }
 
+function statusPageConfig() {
+  const j = jsonEnv<{ enabled?: boolean; title?: string; message?: string; tiles?: string[]; monitors?: string[] }>('STATUS_PAGE', {});
+  const l = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+  return { enabled: j.enabled === true, title: String(j.title ?? 'Service status').slice(0, 80), message: String(j.message ?? '').slice(0, 300), tiles: l(j.tiles), monitors: l(j.monitors) };
+}
 const CL = clusterConfigs();
 
 export const cfg = {
@@ -331,6 +336,9 @@ export const cfg = {
   access: accessConfig(),
 
   tiles: tileConfigs(),
+
+  // Public status page (/status, /status.json): off unless enabled. Lists only the tile ids / monitor names named here ("*" = all).
+  statusPage: statusPageConfig(),
 
   // Audit trail export to a SIEM / log collector (see auditlog.ts). Rows are always hash-chained; these only add push targets.
   auditExport: {

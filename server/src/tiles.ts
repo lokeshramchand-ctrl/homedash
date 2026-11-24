@@ -15,7 +15,7 @@ export interface Stat { label: string; value: string | number; tone?: Tone }
 export interface Probe { status: 'ok' | 'warn'; summary: string; stats: Stat[] }
 export interface TileResult extends Partial<Probe> { state: 'ok' | 'warn' | 'down' | 'pending'; ms: number | null; at: number | null; error?: string }
 
-export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'http'] as const;
+export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'pbs', 'http'] as const;
 
 // ---- pure parsers (exported for the tests) ---------------------------------------------------------
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
@@ -129,6 +129,27 @@ export function parseHomeAssistant(config: any, states: any[]): Probe {
   };
 }
 
+/** Proxmox Backup Server: /status/datastore-usage plus failed tasks of the last 24 h. */
+export function parsePbs(usage: any[], failed: any[] = []): Probe {
+  const stores = (Array.isArray(usage) ? usage : []).map((u) => {
+    const total = n(u?.total), used = n(u?.used);
+    const full = u?.['estimated-full-date'] ? new Date(n(u['estimated-full-date']) * 1000) : null;
+    return { name: String(u?.store ?? '?'), pct: total ? used / total : 0, full };
+  });
+  const worst = stores.reduce((a, s) => (s.pct > a ? s.pct : a), 0);
+  const failures = (Array.isArray(failed) ? failed : []).length;
+  const soon = stores.filter((s) => s.full && s.full.getTime() - Date.now() < 30 * 86_400_000);
+  const dsTone: Tone | undefined = worst >= 0.95 ? 'bad' : worst >= 0.85 ? 'warn' : undefined;
+  return {
+    status: dsTone || failures ? 'warn' : 'ok', summary: `${stores.length} datastore${stores.length === 1 ? '' : 's'}, ${failures} failed task${failures === 1 ? '' : 's'}`,
+    stats: [
+      ...stores.slice(0, 4).map((s) => ({ label: s.name, value: `${(s.pct * 100).toFixed(0)}% full`, tone: (s.pct >= 0.95 ? 'bad' : s.pct >= 0.85 ? 'warn' : undefined) as Tone | undefined })),
+      { label: 'Failed tasks (24 h)', value: failures, tone: failures ? ('bad' as Tone) : undefined },
+      ...(soon.length ? [{ label: 'Full within 30 d', value: soon.map((s) => s.name).join(', '), tone: 'warn' as Tone }] : []),
+    ],
+  };
+}
+
 /** Generic JSON/HTTP check: the stats come from the tile's own `stats: [{label, path}]`. */
 export function parseGeneric(body: unknown, stats: { label: string; path: string }[] = []): Probe {
   return {
@@ -221,6 +242,14 @@ const PROVIDERS: Record<(typeof TILE_KINDS)[number], (t: TileCfg) => Promise<Pro
     const h = bearer(t);
     const [config, states] = await Promise.all([call(t, '/api/config', { headers: h }), call(t, '/api/states', { headers: h })]);
     return parseHomeAssistant(config, states);
+  },
+  pbs: async (t) => {
+    const h = { Authorization: `PBSAPIToken=${t.token}` };
+    const [usage, tasks] = await Promise.all([
+      call(t, '/api2/json/status/datastore-usage', { headers: h }),
+      call(t, `/api2/json/nodes/localhost/tasks?errors=1&limit=50&since=${Math.floor(Date.now() / 1000) - 86_400}`, { headers: h }).catch(() => ({ data: [] })),
+    ]);
+    return parsePbs(usage?.data ?? [], tasks?.data ?? []);
   },
   http: async (t) => {
     if (!t.stats.length) { await call(t, t.path, { headers: bearer(t) }, true); return { status: 'ok', summary: 'responding', stats: [] }; }

@@ -9,7 +9,7 @@ import type { Tile } from '../types';
 const TONE: Record<Tile['state'], Tone> = { ok: 'green', warn: 'amber', down: 'red', pending: 'gray' };
 const LABEL: Record<Tile['state'], string> = { ok: 'Healthy', warn: 'Attention', down: 'Unreachable', pending: 'Checking…' };
 const KIND: Record<string, string> = {
-  docker: 'Docker', portainer: 'Portainer', pihole: 'Pi-hole', npm: 'Nginx Proxy Manager', jellyfin: 'Jellyfin', homeassistant: 'Home Assistant', http: 'HTTP',
+  docker: 'Docker', portainer: 'Portainer', pihole: 'Pi-hole', npm: 'Nginx Proxy Manager', jellyfin: 'Jellyfin', homeassistant: 'Home Assistant', pbs: 'Proxmox Backup Server', http: 'HTTP',
 };
 
 function TileCard({ t, onRefresh, busy }: { t: Tile; onRefresh: () => void; busy: boolean }) {

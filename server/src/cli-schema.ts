@@ -79,7 +79,7 @@ const ROWS: Row[] = [
   R('access.approvals', 'ACCESS_APPROVALS', json), R('access.token_max_days', 'API_TOKEN_MAX_DAYS'), R('access.token_default_days', 'API_TOKEN_DEFAULT_DAYS'),
   R('scim.token', 'SCIM_TOKEN'),
   R('auth.passkeys.rp_id', 'WEBAUTHN_RP_ID'), R('auth.passkeys.origin', 'WEBAUTHN_ORIGIN'), R('auth.passkeys.rp_name', 'WEBAUTHN_RP_NAME'),
-  R('audit.syslog', 'AUDIT_SYSLOG'), R('audit.webhook_url', 'AUDIT_WEBHOOK_URL'), R('audit.webhook_secret', 'AUDIT_WEBHOOK_SECRET'), R('audit.format', 'AUDIT_FORMAT'),
+  R('status_page', 'STATUS_PAGE', json), R('audit.syslog', 'AUDIT_SYSLOG'), R('audit.webhook_url', 'AUDIT_WEBHOOK_URL'), R('audit.webhook_secret', 'AUDIT_WEBHOOK_SECRET'), R('audit.format', 'AUDIT_FORMAT'),
   R('nginx.manage', 'NGINX_MANAGE'), R('nginx.sites_dir', 'NGINX_SITES_DIR'), R('nginx.binary', 'NGINX_BIN'),
 ];
 
@@ -91,11 +91,11 @@ const DS_FIELDS: [string, string][] = [
 export const APPROVAL_ACTIONS = ['host.shutdown', 'snapshot.rollback', 'snapshot.delete', 'guest.stop', 'guest.migrate', 'vm.clone', 'nginx.delete', 'nginx.change'];
 export const POLICY_CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gpu', 'hardware', 'disks', 'services', 'crowdsec', 'db', 'app', 'auth'];
 export const POLICY_CHANNELS = ['ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie'];
-export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'http'];
+export const TILE_KINDS = ['docker', 'portainer', 'pihole', 'npm', 'jellyfin', 'homeassistant', 'pbs', 'http'];
 export const DS_KINDS = ['mongodb', 'redis', 'postgres', 'mysql', 'mssql', 'sqlite', 'milvus'];
 
 /** Top-level keys that are valid; anything else is a likely typo. */
-export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'tiles', 'audit', 'policy', 'env'];
+export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', 'kuma', 'loki', 'crowdsec', 'access', 'scim', 'ntfy', 'gotify', 'discord', 'slack', 'telegram', 'email', 'apprise', 'webhook', 'pagerduty', 'opsgenie', 'ai', 'llama', 'gpu_watch', 'data', 'nginx', 'metrics', 'addons', 'tiles', 'audit', 'policy', 'status_page', 'env'];
 
 /**
  * Secrets the tool creates itself and then keeps (generated.env), so re-applying never rotates them.
@@ -225,6 +225,7 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
         if (Array.isArray(t?.stats)) o.stats = t.stats;
         if (kind === 'portainer' && !isSet(t?.token)) problems.push(`${where}: portainer needs an access token (token)`);
         if (kind === 'npm' && !(isSet(t?.username) && isSet(t?.password))) problems.push(`${where}: npm needs username (e-mail) and password`);
+        if (kind === 'pbs' && !isSet(t?.token)) problems.push(`${where}: pbs needs an API token (token: user@pbs!name:secret)`);
         if (kind === 'homeassistant' && !isSet(t?.token)) problems.push(`${where}: homeassistant needs a long-lived access token (token)`);
         if (kind === 'http' && isSet(t?.stats) && !Array.isArray(t.stats)) problems.push(`${where}.stats: must be a list of { label, path }`);
         return o;
@@ -269,6 +270,15 @@ export function toEnv(y: Yaml, secrets: Record<string, string>, generated: Recor
 
   if (env.AUDIT_SYSLOG && !/^(udp|tcp):\/\/[^\s/:]+(:\d+)?$/.test(env.AUDIT_SYSLOG)) problems.push('audit.syslog: use udp://host:514 or tcp://host:514');
   if (env.AUDIT_FORMAT && !['json', 'cef'].includes(env.AUDIT_FORMAT)) problems.push('audit.format: json or cef');
+
+  if (isSet(y.status_page)) {
+    const sp = y.status_page as Yaml;
+    if (typeof sp !== 'object' || Array.isArray(sp)) problems.push('status_page: must be a mapping (enabled, title, message, tiles, monitors)');
+    else {
+      for (const k of ['tiles', 'monitors']) if (isSet(sp[k]) && !Array.isArray(sp[k])) problems.push(`status_page.${k}: must be a list ("*" for all)`);
+      if (sp.enabled === true && !isSet(sp.tiles) && !isSet(sp.monitors)) problems.push('status_page: enabled but lists no tiles or monitors, so it would show nothing');
+    }
+  }
 
   // Required pairs
   const pair = (a: string, b: string, label: string) => {
@@ -327,6 +337,7 @@ export function featureRows(env: Record<string, string>): FeatureRow[] {
     { id: 'tiles', label: 'Service tiles', on: !!env.TILES && env.TILES !== '[]', hint: 'tiles: [{ kind, url, ... }]' },
     { id: 'auditexport', label: 'Audit export (SIEM)', on: has('AUDIT_SYSLOG') || has('AUDIT_WEBHOOK_URL'), hint: 'audit.syslog or audit.webhook_url' },
     { id: 'policy', label: 'Config as code (scenes, routes, windows)', on: !!env.POLICY, hint: 'policy: { scenes, schedules, alert_routes, maintenance }' },
+    { id: 'status', label: 'Public status page', on: /"enabled":true/.test(env.STATUS_PAGE ?? ''), hint: 'status_page: { enabled: true, tiles: [...] }' },
     { id: 'nginx', label: 'nginx site manager', on: env.NGINX_MANAGE === 'true', hint: 'nginx.manage: true' },
   ];
 }

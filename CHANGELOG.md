@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Proxmox Backup Server tile (datastore fullness, failed tasks in the last 24 h, datastores that fill within 30 days).
+- Public status page (`status_page:`): `/status` and `/status.json`, no sign-in, shows only the tiles and Uptime Kuma monitors you list as operational / degraded / outage, escaped, script-free and rate limited.
+- CI: server tests, shipped-example validation, stricter shellcheck and syntax checks on every push and pull request.
 - Service tiles: read-only status cards for Docker, Portainer, Pi-hole (v5 and v6), Nginx Proxy Manager (with certificate expiry), Jellyfin, Home Assistant and any JSON endpoint, declared under `tiles:`. A tile that stays unreachable raises one alert and one recovery.
 - Tamper-evident audit trail: every audit row is hash-chained; `GET /api/admin/audit/verify` checks it, `/api/admin/audit/export` downloads it (JSON lines or CEF), and `audit:` pushes each new row to a syslog collector (UDP/TCP, RFC 5424) or an HMAC-signed webhook.
 - Config as code: scenes, schedules, alert routes and maintenance windows declared under `policy:` are created, updated and removed to match the file at every start, and are read-only in the UI.

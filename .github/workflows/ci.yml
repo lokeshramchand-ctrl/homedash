@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
 
 jobs:
@@ -12,13 +12,41 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci && npm run build
+      - run: npm ci && npx tsc --noEmit && npm run build
       - run: cd server && npm ci && npm run build
       - run: cd mobile && npm ci && npx tsc --noEmit
+
+  server-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd server && npm ci && npm test
+
+  config-example:
+    # The shipped example must stay valid: every key it documents is checked by the same code the installer runs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd server && npm ci && npm run build
+      - name: Validate infra/homedash.example.yaml
+        env:
+          PVE_TOKEN_SECRET: ci-placeholder
+          HOMEDASH_ETC: /tmp/hd-etc
+          HOMEDASH_CONFIG: infra/homedash.example.yaml
+        run: node server/build/homedash-config.js validate
 
   scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck ct/*.sh install/*.sh tools/pve/*.sh
+      - name: shellcheck
+        run: shellcheck -x ct/*.sh install/*.sh tools/pve/*.sh tools/dev/*.sh
+      - name: syntax
+        run: for f in ct/*.sh install/*.sh tools/pve/*.sh tools/dev/*.sh; do bash -n "$f"; done
       - run: python3 -m json.tool json/homedash.json >/dev/null
