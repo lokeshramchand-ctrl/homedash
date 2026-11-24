@@ -307,7 +307,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {page === 'crowdsec' && <Crowdsec />}
             {page === 'data' && <Data parts={parts.slice(1)} />}
             {page === 'llama' && <Llama />}
-            {page === 'tiles' && <Tiles />}
+            {page === 'tiles' && <Tiles role={role} />}
             {!NAV.some((n) => n.id === page) && <Overview />}
           </main>
         </div>

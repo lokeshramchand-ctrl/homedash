@@ -75,7 +75,7 @@ test('toEnv: problems for typos, missing secrets, half-configured pairs and bad 
 
 test('toEnv: data connections become DS_<ID>_* and the key is requested', () => {
   const y = { data: { enabled: true, connections: [{ id: 'main-mongo', kind: 'mongodb', name: 'Main', uri: 'mongodb://h/', readonly: false }] } };
-  assert.deepEqual(neededGenerated(y).sort(), ['DATASOURCE_KEY', 'METRICS_TOKEN']);
+  assert.deepEqual(neededGenerated(y).sort(), ['DATASOURCE_KEY', 'METRICS_TOKEN', 'SECRETS_KEY']);
   const { env, problems } = toEnv(y, {}, { DATASOURCE_KEY: 'k'.repeat(64), METRICS_TOKEN: 'm' });
   assert.deepEqual(problems, []);
   assert.equal(env.DS_MAIN_MONGO_KIND, 'mongodb');

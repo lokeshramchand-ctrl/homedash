@@ -9,7 +9,10 @@ import { Agent } from 'undici';
 import { cfg } from './config.js';
 import type { TileCfg } from './config.js';
 import { HttpError } from './errors.js';
+import { logEvent } from './events.js';
 import { alert } from './notify.js';
+import { KINDS } from './tile-kinds.js';
+import { buildTile, deleteUiTile, getUiTile, listUiTiles, loadUiTiles, newUiId, saveUiTile, uiTilesAvailable } from './tilestore.js';
 import { TILE_KIND_IDS } from './tile-kinds.js';
 
 export type Tone = 'ok' | 'warn' | 'bad';
@@ -455,9 +458,11 @@ export const PROVIDER_KINDS = Object.keys(PROVIDERS);
 
 // ---- polling -------------------------------------------------------------------------------------
 const results = new Map<string, TileResult>();
+const history = new Map<string, { at: number; ok: boolean; ms: number | null }[]>();
 const fails = new Map<string, number>();
 const alerted = new Set<string>();
 const FAILS_BEFORE_ALERT = 2;
+const HISTORY = 90;
 
 export async function pollTile(t: TileCfg): Promise<TileResult> {
   const t0 = Date.now();
@@ -475,31 +480,100 @@ export async function pollTile(t: TileCfg): Promise<TileResult> {
     if (f >= FAILS_BEFORE_ALERT && !alerted.has(t.id)) { alerted.add(t.id); alert('services', 'error', `DOWN · ${t.name}`, `${t.name}: ${msg}`, `tile|${t.id}`); }
   }
   results.set(t.id, r);
+  const h = history.get(t.id) ?? [];
+  h.push({ at: r.at!, ok: r.state !== 'down', ms: r.ms });
+  if (h.length > HISTORY) h.shift();
+  history.set(t.id, h);
   return r;
 }
 
-export function startTiles(app: FastifyInstance) {
-  for (const t of cfg.tiles) {
-    const run = () => void pollTile(t).catch((e) => app.log.warn({ err: (e as Error).message, tile: t.id }, 'tile poll failed'));
+/** Checks a tile that is not saved (the "Test" button). Nothing is recorded and no alert is raised. */
+export async function probeTile(t: TileCfg): Promise<Pick<TileResult, 'state' | 'summary' | 'stats' | 'ms' | 'error'>> {
+  const t0 = Date.now();
+  try {
+    const p = await PROVIDERS[t.kind](t);
+    return { state: p.status, summary: p.summary, stats: p.stats, ms: Date.now() - t0 };
+  } catch (e) {
+    return { state: 'down', ms: null, error: (e as Error).name === 'TimeoutError' ? 'timed out' : (e as Error).message };
+  } finally { sessions.delete(t.id); }
+}
+
+// The live list: tiles from homedash.yaml plus tiles added in the UI. Reloaded after every change in the UI.
+interface Entry { cfg: TileCfg; source: 'yaml' | 'ui'; sig: string; timer?: NodeJS.Timeout }
+const registry = new Map<string, Entry>();
+let appRef: FastifyInstance | null = null;
+
+export function reloadTiles() {
+  const next = new Map<string, { cfg: TileCfg; source: 'yaml' | 'ui' }>();
+  for (const t of cfg.tiles) next.set(t.id, { cfg: t, source: 'yaml' });
+  for (const t of loadUiTiles((m) => appRef?.log.warn(m))) if (!next.has(t.id)) next.set(t.id, { cfg: t, source: 'ui' });
+  for (const [id, e] of registry) {
+    const n = next.get(id);
+    if (!n || JSON.stringify(n.cfg) !== e.sig) { clearInterval(e.timer); registry.delete(id); if (!n) { results.delete(id); history.delete(id); fails.delete(id); alerted.delete(id); sessions.delete(id); } }
+  }
+  for (const [id, n] of next) {
+    if (registry.has(id)) continue;
+    const run = () => void pollTile(n.cfg).catch((e) => appRef?.log.warn({ err: (e as Error).message, tile: id }, 'tile poll failed'));
     run();
-    setInterval(run, t.pollSeconds * 1000).unref();
+    registry.set(id, { cfg: n.cfg, source: n.source, sig: JSON.stringify(n.cfg), timer: setInterval(run, n.cfg.pollSeconds * 1000).unref() });
   }
 }
 
+export function startTiles(app: FastifyInstance) { appRef = app; reloadTiles(); }
+
 /** What the UI may see: never the token, password or internal URL. */
 export function publicTiles() {
-  return cfg.tiles.map((t) => ({
-    id: t.id, kind: t.kind, name: t.name, link: t.publicUrl || undefined, group: t.group || undefined,
+  return [...registry.values()].map(({ cfg: t, source }) => ({
+    id: t.id, kind: t.kind, name: t.name, link: t.publicUrl || undefined, group: t.group || undefined, source,
+    history: (history.get(t.id) ?? []).map((h) => (h.ok ? h.ms ?? 0 : -1)),
     ...(results.get(t.id) ?? { state: 'pending', ms: null, at: null }),
   }));
 }
+export const tileCfgs = (): TileCfg[] => [...registry.values()].map((e) => e.cfg);
 
 export function registerTiles(app: FastifyInstance) {
   app.get('/api/tiles', async () => publicTiles());
+  app.get('/api/tiles/catalog', async () => ({ kinds: KINDS, canEdit: uiTilesAvailable() }));
   app.post<{ Params: { id: string } }>('/api/tiles/:id/refresh', async (req) => {
-    const t = cfg.tiles.find((x) => x.id === req.params.id);
-    if (!t) throw new HttpError(404, 'NOT_FOUND', 'No such tile');
-    await pollTile(t);
-    return publicTiles().find((x) => x.id === t.id);
+    const e = registry.get(req.params.id);
+    if (!e) throw new HttpError(404, 'NOT_FOUND', 'No such tile');
+    await pollTile(e.cfg);
+    return publicTiles().find((x) => x.id === e.cfg.id);
+  });
+
+  // Managing tiles is administration: everything under /api/admin needs the admin role (roles.ts).
+  const audit = (req: { user?: { username: string } }, what: string) => logEvent('info', 'app', `${req.user?.username ?? 'someone'} ${what}`);
+  app.get('/api/admin/tiles', async () => ({
+    canEdit: uiTilesAvailable(),
+    yaml: cfg.tiles.map((t) => ({ id: t.id, name: t.name, kind: t.kind })),
+    ui: listUiTiles(),
+  }));
+  app.post<{ Body: Record<string, unknown> }>('/api/admin/tiles/test', async (req) => {
+    const body = req.body ?? {};
+    const prev = typeof body.id === 'string' ? getUiTile(body.id) : undefined;
+    return probeTile(await buildTile(body, prev?.id ?? 'test', prev));
+  });
+  app.post<{ Body: Record<string, unknown> }>('/api/admin/tiles', async (req) => {
+    const t = await buildTile(req.body ?? {}, newUiId());
+    saveUiTile(t, req.user!.username, true);
+    reloadTiles();
+    audit(req, `added the service tile "${t.name}" (${t.kind})`);
+    return { id: t.id };
+  });
+  app.put<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/admin/tiles/:id', async (req) => {
+    const prev = getUiTile(req.params.id);
+    if (!prev) throw new HttpError(404, 'NOT_FOUND', 'No such tile (tiles from homedash.yaml are changed in the file)');
+    const t = await buildTile({ ...(req.body ?? {}), kind: prev.kind }, prev.id, prev);
+    saveUiTile(t, req.user!.username, false);
+    reloadTiles();
+    audit(req, `changed the service tile "${t.name}"`);
+    return { id: t.id };
+  });
+  app.delete<{ Params: { id: string } }>('/api/admin/tiles/:id', async (req) => {
+    const prev = getUiTile(req.params.id);
+    if (!deleteUiTile(req.params.id)) throw new HttpError(404, 'NOT_FOUND', 'No such tile');
+    reloadTiles();
+    audit(req, `removed the service tile "${prev?.name ?? req.params.id}"`);
+    return { ok: true };
   });
 }

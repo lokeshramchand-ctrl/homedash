@@ -412,7 +412,12 @@ export interface TileStat { label: string; value: string | number; tone?: 'ok' |
 export interface Tile {
   id: string; kind: string; name: string; link?: string; group?: string;
   state: 'ok' | 'warn' | 'down' | 'pending'; summary?: string; stats?: TileStat[]; ms: number | null; at: number | null; error?: string;
+  source?: 'yaml' | 'ui'; history?: number[];
 }
+export interface TileKind { kind: string; label: string; category: string; ports: number[]; https?: boolean; needs: string[]; optional: string[]; hint: string }
+export interface TileCatalog { kinds: TileKind[]; canEdit: boolean }
+export interface UiTileRow { id: string; name: string; kind: string; config: { url: string; publicUrl: string; group: string; username: string; ups: string; insecureTls: boolean }; hasToken: boolean; hasPassword: boolean }
+export interface TileAdmin { canEdit: boolean; yaml: { id: string; name: string; kind: string }[]; ui: UiTileRow[] }
 
 // ---- node upkeep (updates, ZFS) ----
 export interface Upkeep {

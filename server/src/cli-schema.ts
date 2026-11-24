@@ -106,6 +106,7 @@ export const TOP_KEYS = ['server', 'proxmox', 'auth', 'grafana', 'prometheus', '
 export function neededGenerated(y: Yaml): string[] {
   const out: string[] = [];
   if (y.metrics?.enabled !== false) out.push('METRICS_TOKEN');
+  out.push('SECRETS_KEY'); // seals tokens and passwords of services added in the UI
   if (y.auth?.mfa?.enabled === true || y.auth?.mfa?.required === true) out.push('MFA_KEY');
   if (y.data?.enabled === true || (Array.isArray(y.data?.connections) && y.data.connections.length > 0)) out.push('DATASOURCE_KEY');
   return out;

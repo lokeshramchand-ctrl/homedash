@@ -104,6 +104,9 @@ CREATE TABLE IF NOT EXISTS approvals (
 CREATE INDEX IF NOT EXISTS approvals_status ON approvals (status, created_at DESC);
 CREATE TABLE IF NOT EXISTS scim_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, external_id TEXT, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS scim_members (group_id TEXT NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (group_id, user_id));
+CREATE TABLE IF NOT EXISTS ui_tiles (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, config TEXT NOT NULL, secret TEXT NOT NULL, created_at INTEGER NOT NULL, created_by TEXT
+);
 CREATE TABLE IF NOT EXISTS silences (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, reason TEXT, starts_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, categories TEXT, contains TEXT,
   days TEXT, tod_start TEXT, tod_minutes INTEGER, created_by TEXT NOT NULL, created_at INTEGER NOT NULL

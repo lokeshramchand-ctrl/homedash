@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, HaState, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
+  AppConfig, HaState, TileAdmin, TileCatalog, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -210,6 +210,12 @@ export const api = {
   query: (query: string, start: number, end: number, step: number) =>
     post<PromResult>('/metrics/query', { query, start, end, step }),
   tiles: () => get<Tile[]>('/tiles'),
+  tileCatalog: () => get<TileCatalog>('/tiles/catalog'),
+  tileAdmin: () => get<TileAdmin>('/admin/tiles'),
+  testTile: (b: unknown) => post<{ state: string; summary?: string; stats?: TileStat[]; ms: number | null; error?: string }>('/admin/tiles/test', b),
+  addTile: (b: unknown) => post<{ id: string }>('/admin/tiles', b),
+  editTile: (id: string, b: unknown) => put<{ id: string }>(`/admin/tiles/${encodeURIComponent(id)}`, b),
+  deleteTile: (id: string) => del<{ ok: boolean }>(`/admin/tiles/${encodeURIComponent(id)}`),
   refreshTile: (id: string) => post<Tile>(`/tiles/${encodeURIComponent(id)}/refresh`),
   monitors: () => get<KumaMonitor[]>('/kuma/monitors'),
   incidents: () => get<KumaIncident[]>('/kuma/incidents'),

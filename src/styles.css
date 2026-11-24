@@ -1575,3 +1575,10 @@ a.stat:hover .stat-ic { background: var(--signal-soft); color: var(--signal); bo
 .svc-err { margin: 12px 0 0; color: var(--red, #ed272e); }
 .svc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
 .svc-down { border-color: var(--red, #ed272e); }
+
+/* Add-service form */
+.kind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kind-pick { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: inherit; cursor: pointer; text-align: left; font: inherit; }
+.kind-pick:hover, .kind-pick:focus-visible { border-color: var(--text, currentColor); }
+.svc-logo { display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; color: #fff; font-weight: 600; letter-spacing: -.02em; flex: none; }
+.test-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

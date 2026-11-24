@@ -12,6 +12,7 @@ Object.assign(process.env, {
 });
 const { parsePbs } = await import('../build/tiles.js');
 const { buildStatus, renderHtml, registerStatus } = await import('../build/status.js');
+(await import('../build/tiles.js')).reloadTiles();
 const { toEnv } = await import('../build/cli-schema.js');
 const Fastify = (await import('fastify')).default;
 after(() => rmSync(dir, { recursive: true, force: true }));

@@ -33,6 +33,7 @@ after(() => { srv.close(); try { db.closeDb(); rmSync(dir, { recursive: true, fo
 
 
 tiles = await import('../build/tiles.js');
+tiles.reloadTiles();
 const { jsonPath, parseDocker, parseGeneric, parseHomeAssistant, parseJellyfin, parseNpm, parsePihole, parsePortainer } = tiles;
 const { toEnv } = await import('../build/cli-schema.js');
 
