@@ -51,7 +51,7 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
   { id: 'capacity', label: 'Capacity', icon: 'disk', group: 'Insights' },
   { id: 'netmap', label: 'Network map', icon: 'network', group: 'Insights' },
   { id: 'nginx', label: 'Nginx sites', icon: 'globe', group: 'Services' },
-  { id: 'monitoring', label: 'Monitoring', icon: 'analytics', group: 'Monitoring' },
+  { id: 'monitoring', label: 'Alerts & sources', icon: 'analytics', group: 'Monitoring' },
   { id: 'kuma', label: 'Uptime', icon: 'pulse', group: 'Monitoring' },
   { id: 'grafana', label: 'Grafana', icon: 'analytics', group: 'Monitoring' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'alert', group: 'Monitoring' },
