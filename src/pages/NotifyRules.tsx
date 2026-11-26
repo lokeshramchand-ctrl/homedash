@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { Async, Badge, Card, CardHead, EmptyState, HoldButton, Icon, Spinner } from '../components/ui';
+import { Async, Badge, Card, CardHead, EmptyState, HoldButton, Icon, ManagedBadge, Spinner } from '../components/ui';
 import { useQuery, useToast } from '../hooks';
 import type { AlertLevel, NotifyChannel, RouteItem, SilenceItem, WeeklyWindow } from '../types';
 
@@ -114,7 +114,7 @@ function SilenceRow({ s, onDelete }: { s: SilenceItem; onDelete: () => void }) {
       <div className="grow"><b>{s.name}</b>
         <p className="muted small">{s.weekly ? weeklyText(s.weekly) : `${dt(s.startsAt)} to ${dt(s.endsAt)}`} · {s.categories.length ? s.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(', ') : 'all alerts'}{s.contains ? ` · containing "${s.contains}"` : ''}{s.reason ? ` · ${s.reason}` : ''} · by {s.createdBy}</p></div>
       <Badge tone={state[0]} dot>{state[1]}</Badge>
-      <HoldButton danger onConfirm={onDelete}>Delete</HoldButton>
+      {s.managed ? <ManagedBadge /> : <HoldButton danger onConfirm={onDelete}>Delete</HoldButton>}
     </li>
   );
 }
@@ -174,10 +174,10 @@ export function RoutesTab({ categories, channels, admin }: { categories: string[
                   <div className="grow"><b>{r.name}</b>
                     <p className="muted small">{r.categories.length ? r.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(', ') : 'anything'} · {LEVELS.find(([v]) => v === r.minLevel)?.[1].toLowerCase()}{r.contains ? ` · containing "${r.contains}"` : ''}{r.weekly ? ` · ${weeklyText(r.weekly)}` : ''}</p>
                     <div className="chips-row">{r.channels.map((c) => <Badge key={c} tone="blue">{label(c)}</Badge>)}</div></div>
-                  {admin && <>
+                  {admin && (r.managed ? <ManagedBadge /> : <>
                     <button role="switch" aria-checked={r.enabled} aria-label={`${r.name} enabled`} className={`switch ${r.enabled ? 'on' : ''}`} onClick={() => toggle(r)}><i /></button>
                     <HoldButton danger onConfirm={async () => { try { await api.routeDelete(r.id); q.reload(); } catch (e) { toast.error((e as Error).message); } }}>Delete</HoldButton>
-                  </>}
+                  </>)}
                 </li>
               ))}
             </ul>

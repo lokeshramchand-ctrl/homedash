@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Setup page for administrators: a live checklist (Proxmox reachable, HTTPS, two-step sign-in, alerts, self-backup, service-password encryption, a second administrator) with how to fix each gap, and every optional integration with the exact YAML to switch it on. The Overview reminds administrators until it is done. Scenes, schedules, routes and maintenance windows declared in `homedash.yaml` show an "In config" badge instead of buttons that would fail.
+- Accessibility: a skip-to-content link, avatar and callout colours that meet contrast in both themes, and automated axe checks. Phone layout: stat cards and list rows no longer push the page sideways.
 - Fixes from a full browser pass: CrowdSec no longer crashes when it is not set up, Services is always in the menu so the first service can be added from the UI, integrations that are not switched on say so instead of showing an error, and an unknown address no longer draws two pages. Browser smoke tests (Playwright) now run in CI.
 - Services dashboard: 11 more service kinds (Sonarr, Radarr, Lidarr, Prowlarr, qBittorrent, Plex, AdGuard Home, Traefik, Immich, Nextcloud, UPS via NUT), an Add service form with a Test button and sealed secrets, Find services (probes your running guests for known apps), logos, response sparklines, pinning, drag-to-arrange, a launcher view, accent colours, wall mode and a per-user saved layout.
 - Built-in HTTPS from your own certificate files (renewals picked up without a restart) or a self-signed one; installable app (PWA with icons and an offline shell, never caching API data); optional new-version notice with the `update` hint.

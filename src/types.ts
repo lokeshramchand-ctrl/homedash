@@ -207,9 +207,9 @@ export interface HealthCheck { id: string; title: string; status: 'ok' | 'warn' 
 export interface Health { score: number | null; checks: HealthCheck[] }
 
 export interface SceneStep { vmid: number; action: 'start' | 'shutdown' | 'stop' | 'reboot'; waitSeconds: number; continueOnError: boolean }
-export interface Scene { id: number; name: string; steps: SceneStep[] }
+export interface Scene { id: number; name: string; steps: SceneStep[]; managed?: boolean }
 export interface SceneRun { id: string; scene: string; by: string; startedAt: string; finishedAt: string | null; status: 'running' | 'ok' | 'error'; steps: { vmid: number; action: string; status: string; message: string }[] }
-export interface Schedule { id: number; name: string; sceneId: number | null; vmid: number | null; action: string | null; days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null }
+export interface Schedule { id: number; name: string; sceneId: number | null; vmid: number | null; action: string | null; days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null; managed?: boolean }
 
 // ---- added with the ported pages ----
 export type MfaStep = 'none' | 'required' | 'enroll';
@@ -380,9 +380,9 @@ export interface AccessInfo {
 }
 
 export interface WeeklyWindow { days: number[]; start: string; minutes: number }
-export interface SilenceItem { id: number; name: string; reason: string; startsAt: number; endsAt: number; categories: string[]; contains: string; weekly: WeeklyWindow | null; createdBy: string; createdAt: number; active: boolean; upcoming: boolean; expired: boolean }
+export interface SilenceItem { id: number; name: string; reason: string; startsAt: number; endsAt: number; categories: string[]; contains: string; weekly: WeeklyWindow | null; createdBy: string; createdAt: number; active: boolean; upcoming: boolean; expired: boolean; managed?: boolean }
 export interface SilenceInput { name: string; reason?: string; startsAt?: string; endsAt?: string; categories: string[]; contains?: string; weekly?: WeeklyWindow | null }
-export interface RouteItem { id: number; name: string; enabled: boolean; categories: string[]; minLevel: AlertLevel; contains: string; channels: string[]; weekly: WeeklyWindow | null; position: number }
+export interface RouteItem { id: number; name: string; enabled: boolean; categories: string[]; minLevel: AlertLevel; contains: string; channels: string[]; weekly: WeeklyWindow | null; position: number; managed?: boolean }
 export interface RouteInput { name: string; enabled?: boolean; categories: string[]; minLevel: AlertLevel; contains?: string; channels: string[]; weekly?: WeeklyWindow | null }
 
 // ---- clusters and nodes ----
@@ -429,3 +429,7 @@ export interface Upkeep {
 export interface TileSuggestion { kind: string; label: string; category: string; url: string; port: number; guest: { vmid: number; name: string }; name: string }
 
 export interface VersionInfo { enabled: boolean; current: string; latest: string | null; url: string | null; available: boolean; checkedAt: number | null; error: string | null }
+
+export interface SetupCheck { id: string; title: string; status: 'ok' | 'todo' | 'warn'; detail: string; fix?: string; page?: string }
+export interface SetupIntegration { id: string; name: string; what: string; page: string | null; enabled: boolean; snippet: string; secrets: string[] }
+export interface SetupInfo { checks: SetupCheck[]; progress: { done: number; total: number }; integrations: SetupIntegration[] }

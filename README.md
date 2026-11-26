@@ -1,6 +1,6 @@
 # homedash
 
-A single-user dashboard for a Proxmox homelab: start and stop guests, watch host and guest metrics, see your nginx sites, browse Grafana and track Uptime Kuma, from a browser or a phone.
+A dashboard for a Proxmox homelab or a small team: start and stop guests, watch host and guest metrics, see your services and nginx sites, browse Grafana and track Uptime Kuma, from a browser or a phone. One person or many (roles, teams, single sign-on).
 
 | Part | Path | Stack |
 |---|---|---|
@@ -69,6 +69,10 @@ Every option is documented in [`server/.env.example`](server/.env.example): prot
 ### Update
 
 Run the same command again inside the container, or from the host: `pct enter <ctid>` then `update`. Settings and the database (`/opt/homedash/data`) are kept.
+
+## First steps after installing
+
+Sign in as an administrator and open **Setup** (Settings group). It checks your install live (Proxmox reachable, HTTPS, two-step sign-in, alerts, self-backup, a second administrator) and says how to fix each gap. Below the checklist, every optional integration has the exact YAML to switch it on, with a copy button. The Overview reminds administrators until the checklist is done.
 
 ## Configuration
 
@@ -182,6 +186,8 @@ bash tools/dev/test-ct.sh --keep 9999 10.10.10.199/24 10.10.10.1 vnet1
 ```
 
 Unit tests for the pure logic (forecasting, duplicate detection, scheduling, validation): `cd server && npm test`.
+
+Browser tests (Playwright: every page loads, accessibility with axe in light and dark theme, no sideways scrolling on a phone): see [`e2e/README.md`](e2e/README.md). They run in CI against a mock Proxmox.
 
 ## Develop
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { Async, Badge, Card, CardHead, HoldButton, Icon, Modal, PageHeader, Spinner } from '../components/ui';
+import { Async, Badge, Card, CardHead, HoldButton, Icon, ManagedBadge, Modal, PageHeader, Spinner } from '../components/ui';
 import type { Tone } from '../components/ui';
 import { timeAgo } from '../format';
 import { useQuery, useToast } from '../hooks';
@@ -112,8 +112,9 @@ export default function Scenes() {
               <Card key={s.id}>
                 <CardHead title={s.name} sub={`${s.steps.length} step${s.steps.length === 1 ? '' : 's'}`} right={<div className="row-actions">
                   <button className="btn btn-sm btn-primary" onClick={() => run(s)}><Icon name="play" size={14} />Run</button>
-                  <button className="btn btn-sm" onClick={() => setEditScene(s)}>Edit</button>
-                  <HoldButton danger onConfirm={() => api.sceneDelete(s.id).then(reloadAll)}>Hold: delete</HoldButton></div>} />
+                  {s.managed ? <ManagedBadge /> : <>
+                    <button className="btn btn-sm" onClick={() => setEditScene(s)}>Edit</button>
+                    <HoldButton danger onConfirm={() => api.sceneDelete(s.id).then(reloadAll)}>Hold: delete</HoldButton></>}</div>} />
                 <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>{s.steps.map((st, i) => <li key={i}>{st.action} <b>{name(st.vmid)}</b>{st.waitSeconds ? <span className="muted"> · wait {st.waitSeconds}s</span> : null}</li>)}</ol>
               </Card>
             ))}
@@ -129,9 +130,10 @@ export default function Scenes() {
             <div className="small">{s.days.map((d) => DAYS[d]).join(' ')} at <b>{s.time}</b></div>
             <div className="small muted">{s.lastRun ? `${timeAgo(new Date(s.lastRun).toISOString())}: ${s.lastResult}` : 'never run'}</div>
             <div className="row-actions">
-              <button className="btn btn-sm" onClick={() => toggle(s)}>{s.enabled ? 'Pause' : 'Resume'}</button>
-              <button className="btn btn-sm" onClick={() => setEditSched(s)}>Edit</button>
-              <HoldButton danger onConfirm={() => api.scheduleDelete(s.id).then(reloadAll)}>Hold: delete</HoldButton>
+              {s.managed ? <ManagedBadge /> : <>
+                <button className="btn btn-sm" onClick={() => toggle(s)}>{s.enabled ? 'Pause' : 'Resume'}</button>
+                <button className="btn btn-sm" onClick={() => setEditSched(s)}>Edit</button>
+                <HoldButton danger onConfirm={() => api.scheduleDelete(s.id).then(reloadAll)}>Hold: delete</HoldButton></>}
             </div>
           </div>
         )) : <p className="muted small" style={{ padding: 16 }}>No schedules.</p>}

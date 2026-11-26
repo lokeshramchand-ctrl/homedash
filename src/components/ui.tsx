@@ -75,6 +75,9 @@ export function Badge({ tone = 'gray', dot, children, title }: { tone?: Tone; do
   );
 }
 
+/** Marks something declared in homedash.yaml: it can only be changed there. */
+export const ManagedBadge = () => <Badge tone="gray" title="Declared in homedash.yaml (policy:). Change it there and run homedash-config apply.">In config</Badge>;
+
 export const Spinner = ({ size = 16 }: { size?: number }) => <span className="spinner" style={{ width: size, height: size }} aria-label="Loading" />;
 
 export function Card({ children, className = '', pad = true }: { children: ReactNode; className?: string; pad?: boolean }) {

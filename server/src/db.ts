@@ -400,13 +400,13 @@ export function takeOidc(id: string): { verifier: string; nonce: string } | null
 // ---- scenes and schedules ----------------------------------------------------------------------
 export interface SceneStep { vmid: number; action: 'start' | 'shutdown' | 'stop' | 'reboot'; waitSeconds: number; continueOnError: boolean }
 /** cluster null = the first cluster (rows from before several clusters were supported). */
-export interface SceneRow { id: number; name: string; steps: SceneStep[]; cluster: string | null }
+export interface SceneRow { id: number; name: string; steps: SceneStep[]; cluster: string | null; /** declared in homedash.yaml (policy:), read-only in the UI */ managed?: boolean }
 export interface ScheduleRow {
   id: number; name: string; sceneId: number | null; vmid: number | null; action: string | null;
-  days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null; cluster: string | null;
+  days: number[]; time: string; enabled: boolean; lastRun: number | null; lastResult: string | null; cluster: string | null; managed?: boolean;
 }
 
-const sceneOf = (r: any): SceneRow => ({ id: r.id, name: r.name, steps: JSON.parse(r.steps), cluster: r.cluster ?? null });
+const sceneOf = (r: any): SceneRow => ({ id: r.id, name: r.name, steps: JSON.parse(r.steps), cluster: r.cluster ?? null, managed: r.managed === 'config' });
 export const listScenes = (): SceneRow[] => (d.prepare('SELECT * FROM scenes ORDER BY name').all() as any[]).map(sceneOf);
 export const getScene = (id: number): SceneRow | null => { const r = d.prepare('SELECT * FROM scenes WHERE id = ?').get(id); return r ? sceneOf(r) : null; };
 export const saveScene = (id: number | null, name: string, steps: SceneStep[], cluster: string | null = null): number => {
@@ -421,7 +421,7 @@ export const deleteScene = (id: number) => {
 
 const schedOf = (r: any): ScheduleRow => ({
   id: r.id, name: r.name, sceneId: r.scene_id, vmid: r.vmid, action: r.action, days: String(r.days).split(',').filter(Boolean).map(Number),
-  time: r.time, enabled: !!r.enabled, lastRun: r.last_run, lastResult: r.last_result, cluster: r.cluster ?? null,
+  time: r.time, enabled: !!r.enabled, lastRun: r.last_run, lastResult: r.last_result, cluster: r.cluster ?? null, managed: r.managed === 'config',
 });
 export const listSchedules = (): ScheduleRow[] => (d.prepare('SELECT * FROM schedules ORDER BY time, name').all() as any[]).map(schedOf);
 export const saveSchedule = (id: number | null, s: Omit<ScheduleRow, 'id' | 'lastRun' | 'lastResult' | 'cluster'> & { cluster?: string | null }): number => {
@@ -576,12 +576,12 @@ export const purgeApprovals = () => { d.prepare('DELETE FROM approvals WHERE cre
 
 // ---- alert silences (maintenance windows) and routing rules ---------------------------------------------
 export interface WeeklyWindow { days: number[]; start: string; minutes: number } // days 0=Sunday, start "HH:MM" server time
-export interface SilenceRow { id: number; name: string; reason: string; startsAt: number; endsAt: number; categories: string[]; contains: string; weekly: WeeklyWindow | null; createdBy: string; createdAt: number }
+export interface SilenceRow { id: number; name: string; reason: string; startsAt: number; endsAt: number; categories: string[]; contains: string; weekly: WeeklyWindow | null; createdBy: string; createdAt: number; managed?: boolean }
 const weeklyOf = (days: unknown, start: unknown, minutes: unknown): WeeklyWindow | null =>
   days && start ? { days: String(days).split(',').filter(Boolean).map(Number), start: String(start), minutes: Number(minutes ?? 60) } : null;
 const silenceOf = (r: any): SilenceRow => ({
   id: r.id, name: r.name, reason: r.reason ?? '', startsAt: r.starts_at, endsAt: r.ends_at, categories: json<string[]>(r.categories) ?? [], contains: r.contains ?? '',
-  weekly: weeklyOf(r.days, r.tod_start, r.tod_minutes), createdBy: r.created_by, createdAt: r.created_at,
+  weekly: weeklyOf(r.days, r.tod_start, r.tod_minutes), createdBy: r.created_by, createdAt: r.created_at, managed: r.managed === 'config',
 });
 export const listSilences = (): SilenceRow[] => (d.prepare('SELECT * FROM silences ORDER BY ends_at DESC').all() as any[]).map(silenceOf);
 export function saveSilence(id: number | null, s: Omit<SilenceRow, 'id' | 'createdAt'>): number {
@@ -593,10 +593,10 @@ export function saveSilence(id: number | null, s: Omit<SilenceRow, 'id' | 'creat
 export const deleteSilence = (id: number): boolean => Number(d.prepare('DELETE FROM silences WHERE id = ?').run(id).changes) > 0;
 export const purgeSilences = () => { d.prepare('DELETE FROM silences WHERE ends_at < ? AND days IS NULL').run(Date.now() - 7 * 86_400_000); };
 
-export interface RouteRow { id: number; name: string; enabled: boolean; categories: string[]; minLevel: 'info' | 'warn' | 'error'; contains: string; channels: string[]; weekly: WeeklyWindow | null; position: number }
+export interface RouteRow { id: number; name: string; enabled: boolean; categories: string[]; minLevel: 'info' | 'warn' | 'error'; contains: string; channels: string[]; weekly: WeeklyWindow | null; position: number; managed?: boolean }
 const routeOf = (r: any): RouteRow => ({
   id: r.id, name: r.name, enabled: !!r.enabled, categories: json<string[]>(r.categories) ?? [], minLevel: r.min_level, contains: r.contains ?? '',
-  channels: json<string[]>(r.channels) ?? [], weekly: weeklyOf(r.days, r.tod_start, r.tod_minutes), position: r.position,
+  channels: json<string[]>(r.channels) ?? [], weekly: weeklyOf(r.days, r.tod_start, r.tod_minutes), position: r.position, managed: r.managed === 'config',
 });
 export const listRoutes = (): RouteRow[] => (d.prepare('SELECT * FROM alert_routes ORDER BY position, id').all() as any[]).map(routeOf);
 export function saveRoute(id: number | null, r: Omit<RouteRow, 'id' | 'position'>): number {

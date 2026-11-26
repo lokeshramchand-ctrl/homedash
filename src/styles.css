@@ -742,7 +742,7 @@ pre.codebox { margin: 0; }
 .btn-sm { height: 34px; padding: 0 12px; font-size: 13px; }
 .pill-list { display: flex; gap: 6px; flex-wrap: wrap; }
 .section-gap { margin-top: 20px; }
-@media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } .list-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } .list-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .list-row > * { min-width: 0; } .list-row.head { display: none; } .list-row > .row-actions { grid-column: 1 / -1; justify-content: flex-start; } }
 
 /* ---------- ported pages: charts, data manager, CrowdSec, LLM (appended from the lab dashboard) ---------- */
 .loki-bars { display: flex; align-items: flex-end; gap: 2px; height: 64px; }
@@ -1611,3 +1611,30 @@ body.wall .content { padding: 28px 40px; max-width: none; }
 body.wall .svc-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); } body.wall .svc-stats dd { font-size: 22px; }
 @media (max-width: 640px) { .svc-grid { grid-template-columns: 1fr; } .svc-tools { width: 100%; justify-content: space-between; } .spark { width: 90px; } }
 @media (prefers-reduced-motion: reduce) { .lau { transition: none; } .lau:hover { transform: none; } }
+
+/* Setup page */
+.setup-sum { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.setup-sum b { font-size: 22px; }
+.setup-meter { flex: 1; min-width: 160px; }
+.setup-row { border-top: 1px solid var(--line, rgba(0,0,0,.08)); }
+.setup-head { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 20px; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.setup-head:hover { background: rgba(0,0,0,.025); }
+.setup-title { flex: 1; font-weight: 600; }
+.setup-tick { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 2px solid currentColor; flex: none; opacity: .5; }
+.setup-tick.t-ok { background: var(--green, #1f9d55); border-color: var(--green, #1f9d55); color: #fff; opacity: 1; }
+.setup-tick.t-todo { color: var(--blue, #2b6cb0); opacity: 1; }
+.setup-tick.t-warn { color: var(--amber, #b7791f); opacity: 1; }
+.setup-body { padding: 0 20px 18px 54px; }
+.setup-body p { margin: 0 0 8px; }
+
+/* Keyboard users: first Tab reveals a link past the navigation. */
+.skip-link { position: absolute; left: 12px; top: -48px; z-index: 1000; padding: 10px 16px; border-radius: 8px; background: var(--ink, #111); color: #fff; font-weight: 600; text-decoration: none; transition: top .15s; }
+.skip-link:focus { top: 12px; }
+#main-content:focus { outline: none; }
+@media (prefers-reduced-motion: reduce) { .skip-link { transition: none; } }
+
+/* Links inside a callout take its colour: the callout colours are chosen for contrast on its own background (dark theme too). */
+.callout .link, .stale .link { color: inherit; border-color: currentColor; background: none; }
+
+/* Phone width: stat cards wrap instead of pushing the page sideways. */
+@media (max-width: 720px) { .stat-row { flex-wrap: wrap; } .stat-row > div { flex: 1 1 140px; min-width: 0; } }

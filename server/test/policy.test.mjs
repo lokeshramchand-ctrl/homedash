@@ -63,6 +63,12 @@ test('managed rows cannot be edited through the API; UI-made rows can', () => {
   assert.throws(() => assertEditable('scenes', sc.id), (e) => e.status === 409 && e.code === 'MANAGED');
   const mine = db.saveScene(null, 'Mine', [{ vmid: 5, action: 'start', waitSeconds: 0, continueOnError: false }], null);
   assert.doesNotThrow(() => assertEditable('scenes', mine));
+  // the lists say which rows are declared in the file, so the UI can show a badge instead of buttons that would fail
+  assert.equal(db.listScenes().find((x) => x.id === sc.id).managed, true);
+  assert.equal(db.listScenes().find((x) => x.id === mine).managed, false);
+  assert.ok(db.listSchedules().every((x) => x.managed === true));
+  assert.equal(db.listRoutes()[0].managed, true);
+  assert.equal(db.listSilences()[0].managed, true);
 });
 
 test('changes in the file update rows, and removed entries disappear; UI rows are never touched', () => {

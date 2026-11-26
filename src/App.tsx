@@ -33,9 +33,10 @@ import Crowdsec from './pages/Crowdsec';
 import Data from './pages/Data';
 import Llama from './pages/Llama';
 import Tiles from './pages/Tiles';
+import Setup, { SetupNudge } from './pages/Setup';
 import type { AppConfig, Features, Guest } from './types';
 
-const ALL_NAV: { id: string; label: string; icon: IconName; group: string; feature?: keyof Features }[] = [
+const ALL_NAV: { id: string; label: string; icon: IconName; group: string; feature?: keyof Features; admin?: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: 'grid', group: 'Workspace' },
   { id: 'node', label: 'Node', icon: 'node', group: 'Datacenter' },
   { id: 'cluster', label: 'Cluster', icon: 'network', group: 'Datacenter' },
@@ -58,10 +59,11 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
   { id: 'llama', label: 'LLM server', icon: 'cpu', group: 'Services', feature: 'llama' },
   { id: 'access', label: 'Access', icon: 'settings', group: 'Settings' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', group: 'Settings' },
+  { id: 'setup', label: 'Setup', icon: 'check', group: 'Settings', admin: true },
 ];
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
-  crowdsec: 'Search…', tiles: 'Search services…', access: 'Search…', data: 'Search…', llama: 'Search…',
+  crowdsec: 'Search…', tiles: 'Search services…', access: 'Search…', setup: 'Search…', data: 'Search…', llama: 'Search…',
   cluster: 'Search…', scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
@@ -74,7 +76,8 @@ const THEME_LABEL: Record<ThemePref, string> = { system: 'System theme', light: 
 
 // Flat brand colours; a stable hash of the username picks one, so each user keeps the same
 // solid-colour monogram across sessions. No gradients — just the initials, cleanly set.
-const AVATAR_COLORS = ['#ed272e', '#0870b9', '#3eb850', '#5a6fc9', '#0b7a8c', '#c27a16'];
+// Every colour keeps white initials above the 4.5:1 contrast ratio (checked by the accessibility test).
+const AVATAR_COLORS = ['#c81d25', '#0870b9', '#1f7a35', '#4a5ab8', '#0b7a8c', '#9a5b00'];
 function avatarColor(user: string): string {
   let h = 0;
   for (let i = 0; i < user.length; i++) h = (h * 31 + user.charCodeAt(i)) >>> 0;
@@ -155,7 +158,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
   }, []);
   const features = useQuery(api.features, [], 0);
   const version = useQuery(api.version, [], 3_600_000);
-  const NAV = useMemo(() => ALL_NAV.filter((n) => !n.feature || features.data?.[n.feature]), [features.data]);
+  const NAV = useMemo(() => ALL_NAV.filter((n) => (!n.feature || features.data?.[n.feature]) && (!n.admin || role === 'admin')), [features.data, role]);
   const GROUPS = useMemo(() => [...new Set(NAV.map((n) => n.group))], [NAV]);
   const [tick, setTick] = useState(0);
   const [spin, setSpin] = useState(false);
@@ -231,6 +234,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
   return (
     <RefreshCtx.Provider value={{ tick, bump }}>
      <SearchCtx.Provider value={{ q, setQ }}>
+      <a className="skip-link" href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</a>
       <div className={`app ${collapsed ? 'mini' : ''} ${menu ? 'drawer' : ''}`}>
         <aside className="side" aria-label="Primary">
           <div className="side-brand">
@@ -286,12 +290,13 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             </div>
           </header>
 
-          <main className="content" key={`${parts.join('/')}|${sel.cluster}|${sel.node}`}>
+          <main className="content" id="main-content" tabIndex={-1} key={`${parts.join('/')}|${sel.cluster}|${sel.node}`}>
             {role === 'admin' && version.data?.available && (
               <div className="callout warn" role="status" style={{ marginBottom: 16 }}>
                 <Icon name="info" size={16} /><span><b>homedash {version.data.latest} is available</b> (you run {version.data.current}). Open the container console in Proxmox and run <code>update</code>.{version.data.url && <> <a className="link" href={version.data.url} target="_blank" rel="noopener noreferrer">What changed</a></>}</span>
               </div>
             )}
+            {current.id === 'overview' && role === 'admin' && <SetupNudge />}
             {current.id === 'overview' && <Overview />}
             {current.id === 'node' && <Node tab={parts[1]} />}
             {current.id === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}
@@ -314,6 +319,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {current.id === 'data' && <Data parts={parts.slice(1)} />}
             {current.id === 'llama' && <Llama />}
             {current.id === 'tiles' && <Tiles role={role} />}
+            {current.id === 'setup' && <Setup />}
           </main>
         </div>
       </div>

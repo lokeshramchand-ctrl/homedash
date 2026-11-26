@@ -3,13 +3,13 @@
 Four workstreams. A box is ticked only when the work is done, verified and pushed.
 
 - [x] **1. Make it trustworthy**
-- [ ] **2. User-friendliness**
+- [x] **2. User-friendliness**
 - [ ] **3. Features**
 - [ ] **4. Project support**
 
 ---
 
-## 1. Make it trustworthy: done
+## 1. Make it trustworthy: done (CI green on PR #1)
 
 | Task | Result |
 |---|---|
@@ -31,3 +31,25 @@ Four workstreams. A box is ticked only when the work is done, verified and pushe
 
 ### Still not verified (needs your hardware)
 Installer in a real container, `host-addons.sh`, real Proxmox/PBS/HA, passkeys with a real authenticator, SCIM with a real IdP, real alert channels, drag-and-drop and PWA install by hand.
+
+---
+
+## 2. User-friendliness: done
+
+| Task | Result |
+|---|---|
+| First-run guidance | New **Setup** page (Settings, administrators only): a live checklist (Proxmox reachable, HTTPS, two-step sign-in, alerts, self-backup, service-password encryption, a second administrator) with what each gap means and how to fix it. The Overview shows a dismissible reminder until it is done. |
+| Integrations in one place | The same page lists 11 optional integrations with On/Off and, for the ones that are off, the exact YAML and the secret names to store, with a copy button. A test checks every snippet against the same code the installer runs. |
+| Calm empty and error states | An integration that is not switched on now says "Not set up yet" and how to enable it; missing permission says "You don't have access". "Couldn't load this panel / Try again" is kept for real failures only. |
+| Read-only badges | Scenes, schedules, alert routes and maintenance windows declared in `homedash.yaml` show an "In config" badge instead of buttons that would fail with an error. The API now reports `managed` (tested). |
+| Accessibility | Measured with axe on 10 pages in light and dark theme: no serious or critical findings. Fixed avatar colours and callout links (contrast), added a skip-to-content link (keyboard test). |
+| Phone layout | Every page checked at 390 px wide. Protection spilled sideways (stat cards and table rows); fixed, and a test now guards all 19 pages. |
+| README | Removed the stale "single-user" claim, added "First steps after installing". |
+
+### Verified
+- Server tests: 127 pass (6 new for Setup, 1 extended for managed rows).
+- Browser tests: 9 pass in Chrome (page sweep, Services, Setup, reminder, axe light and dark, skip link, phone overflow).
+
+### Deliberately not done in this item
+- **Editing `homedash.yaml` from the browser.** The Setup page shows the exact YAML instead. Writing the config from the web UI would let the web app rewrite its own configuration and restart itself; that is a security decision to make on purpose, not as a side effect. Say so if you want it.
+- **Translations (i18n).** Every string is English and inline. Doing it properly means extracting about 1,500 strings; it is better done once there is a target language.

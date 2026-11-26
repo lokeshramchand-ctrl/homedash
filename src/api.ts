@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
+  AppConfig, SetupInfo, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -149,6 +149,7 @@ export const api = {
   ssoConfig: () => get<SsoConfig>('/auth/sso/config'),
   me: () => get<{ username: string; role?: string; mfa?: string }>('/auth/me'),
   features: () => get<Features>('/features'),
+  setup: () => get<SetupInfo>('/admin/setup'),
   overview: () => get<Overview>('/overview'),
   guests: () => get<Guest[]>('/guests'),
   guestAction: (vmid: number, action: GuestAction) => post<{ taskId: string }>(`/guests/${vmid}/${action}`),
