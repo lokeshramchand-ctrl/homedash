@@ -76,3 +76,23 @@ Also fixed on the way: error text on an unreachable service card failed colour c
 | Web Push | Needs a browser push service and signing keys; cannot be proven without real devices. ntfy, Gotify, Telegram and the other 6 channels already push to phones. |
 | Docker image update notices | Needs a real Docker host and registry to test against. |
 | Real brand logos | Needs bundling third-party artwork and a licence decision. The monogram logos work and meet contrast. |
+
+---
+
+## 4. Project support: done (pending the first CI run of the Docker job, see below)
+
+| Item | Result |
+|---|---|
+| **`homedash-config doctor`** | Tries every address and folder in use: Proxmox (with the token, so a refused token is told apart from an unreachable host), Grafana, Prometheus, Kuma, Loki, alert services, LLM and GPU agents, the database and backup folders, the UI files, Node version and the secrets file mode. Each failure is explained in plain words with the fix; a dead cluster member is only a warning while another answers; exit code 1 on failures. Run against the mock Proxmox with a good token, a dead address and an unresolvable name, and unit tested. |
+| **API reference** | `GET /api/admin/openapi.json`, generated from the live route table (so it cannot drift): about every route, its path parameters and the lowest role that may call it, from the same rules the server enforces. Lists routes and roles, not request bodies. |
+| **Troubleshooting guide and FAQ** | `docs/TROUBLESHOOTING.md`: 17 symptoms mapped to cause and fix, using the real error codes and messages from the code (each checked against the source), plus FAQ. Linked from the README. |
+| **Issue and PR templates, Dependabot** | Bug report (asks for the `doctor` output), feature request, PR checklist, weekly or monthly dependency updates for the web app, backend, mobile, Actions and Docker. |
+| **Release workflow** | Pushing a `v*` tag runs the checks, creates a GitHub release with generated notes and publishes `ghcr.io/<owner>/homedash` (`1.2.0`, `1.2`, `latest`). Documented in CONTRIBUTING. YAML validated; **not yet exercised** (needs a real tag). |
+| **Docker image in CI** | New `docker` job builds the image and runs it with the same non-root, read-only, no-capabilities settings as compose, checks the UI and API answer and that `/api` refuses anonymous requests, and creates a user inside. |
+| **Contributing guide fixed** | It named a `master` branch, an `AGENTS.md` and a PR template that did not exist, and a test command that skipped the tests. Rewritten with the real checks, rules and release steps. |
+| **Community-scripts readiness** | `docs/SUBMISSION.md`. Finding: new scripts go to the **ProxmoxVED** testing repository first and PRs for new scripts against ProxmoxVE are closed. The README's headline install command pointed at a community-scripts path that does not exist yet (a 404 for a new user); it now points at this repository. Installer metadata no longer says "single-user". |
+
+### Not verified, and why
+- **Docker image:** the Docker daemon is not running on this machine and I did not start it. CI builds and runs it; see the PR checks.
+- **Release workflow:** only a real tag proves it.
+- **Community-scripts:** the installer has still never run in a real container. `tools/dev/test-ct.sh` on your Proxmox host is the next step; `docs/SUBMISSION.md` lists the rest.

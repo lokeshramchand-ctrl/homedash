@@ -13,11 +13,10 @@ A dashboard for a Proxmox homelab or a small team: start and stop guests, watch 
 Run on the Proxmox host. This creates an LXC, installs Node 22, builds homedash and starts it as a systemd service:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/DevScripts/main/ct/homedash.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/lokeshramchand-ctrl/homedash/main/ct/homedash.sh)"
 ```
 
-> Until the script is accepted upstream, run it from this repository instead:
-> `bash -c "$(curl -fsSL https://raw.githubusercontent.com/lokeshramchand-ctrl/homedash/main/ct/homedash.sh)"`
+> This script is not part of the community-scripts collection yet (see [`docs/SUBMISSION.md`](docs/SUBMISSION.md)), so the command above runs it from this repository. Read a script before you pipe it into `bash` on a production host.
 
 Open `http://<container-ip>:3000` and sign in with the admin login printed at the end of the install.
 
@@ -82,7 +81,10 @@ Everything is switched on from one file inside the container, `/etc/homedash/hom
 homedash-config validate          # which features would be on, and what is wrong
 homedash-config apply --restart   # render server/.env, nginx vhosts and the add-on files, then restart
 homedash-config status            # validate + is the server answering
+homedash-config doctor            # try every address and folder in use; says what is wrong and how to fix it
 ```
+
+Something not working? [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) maps what you see to the cause and the fix.
 
 Secrets are written as `${NAME}` in the YAML and kept in `/etc/homedash/secrets.env` (mode 600), so the YAML can be shared. The MFA, Data-manager and `/metrics` keys are generated once and kept in `/etc/homedash/generated.env`, so applying again never rotates them. `.env` is rewritten only between its `managed` markers; lines you added by hand are kept. Every option, commented, is in [`infra/homedash.example.yaml`](infra/homedash.example.yaml), and the raw variables are in [`server/.env.example`](server/.env.example).
 
@@ -126,7 +128,7 @@ On the Notifications page: a **maintenance window** (one-off or weekly, optional
 
 - **Roles** (`viewer`, `operator`, `admin`) apply everywhere. **Teams** narrow that: a person in a team sees only the guests it lists (by id range or Proxmox tag) and gets no host-wide pages (overview, nginx, databases, logs). People without a team are unaffected.
 - **Group sync.** With OIDC, `access.group_roles` and `access.group_teams` turn the provider's groups into a role and teams at every sign-in. With **SCIM** (`scim.token`, base URL `/scim/v2`) the provider also creates, updates and deactivates accounts; deactivating ends their sessions and revokes their API tokens at once. A user in no mapped group gets `auth.oidc.default_role`, and `admin_users` always wins. The SCIM `userName` must equal the user's OIDC `preferred_username` (or e-mail) so the first sign-in adopts the provisioned account.
-- **API tokens** (Access page): shown once, stored as a hash, never more than their owner's role, scoped like their owner, expire (90 days by default), revoke any time. A token cannot create tokens or change account security.
+- **API tokens** (Access page): shown once, stored as a hash, never more than their owner's role, scoped like their owner, expire (90 days by default), revoke any time. A token cannot create tokens or change account security. Administrators get a generated API reference (every route and the role it needs) at `GET /api/admin/openapi.json`.
 - **Approvals.** For the actions you list, the first request is refused and queued; a *different* administrator approves it on the Access page; the requester then repeats the identical request (the page has a Run button) and it runs once. Approvals expire and are bound to the requester and the exact request body.
 - **Passkeys** need HTTPS and `auth.passkeys.rp_id` / `origin`. A passkey is verified with the device's biometric or PIN, so it replaces both the password and the code.
 

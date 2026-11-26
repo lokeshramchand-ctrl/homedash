@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `homedash-config doctor`: tries every configured address and folder (Proxmox with the token, Grafana, Kuma, Loki, alert services, LLM agents, backup and data folders, Node version, secrets file mode) and explains each failure in plain words with the fix. A dead cluster member is only a warning while another answers.
+- API reference generated from the running server (`GET /api/admin/openapi.json`, administrators): every route, its path parameters and the lowest role that may call it.
+- Project support: troubleshooting guide and FAQ, issue and pull request templates, Dependabot, a release workflow (GitHub release plus a container image on ghcr.io on a version tag), a CI job that builds and runs the Docker image, a corrected contributing guide, and a community-scripts submission page. The README install command now points at this repository until the script is accepted upstream.
 - Backups and audit page: run and list backups of homedash's own data with restore steps, verify the audit chain in one click, and download the trail (JSON lines or CEF).
 - Services layout export and import: save order, pins, view and colour to a file and load it on another browser or install (validated, size-limited).
 - Mobile app: sign in with an API token, so accounts with two-step sign-in or single sign-on can use it.

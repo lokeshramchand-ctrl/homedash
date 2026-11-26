@@ -5,6 +5,7 @@
 //   homedash-config init              write a commented homedash.yaml (and secrets.env) if there is none
 //   homedash-config validate          check the YAML and show which integrations it would switch on
 //   homedash-config status            same, plus what the running server reports
+//   homedash-config doctor            try every address and folder the configuration uses and say what is wrong
 //   homedash-config apply [--restart] [--dry-run] [--no-nginx]
 //                                     render server/.env, nginx vhosts, and the host/stack config files
 //   homedash-config print-env         print the .env that apply would write (secrets masked)
@@ -19,6 +20,10 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { render } from './cli-template.js';
 import { featureRows, neededGenerated, toEnv } from './cli-schema.js';
+import { Agent } from 'undici';
+import { accessSync, constants as fsc, statSync } from 'node:fs';
+import { exitCode, interpretHttp, interpretNetworkError, localFindings, softenFailover, summary, targetsFor } from './doctor.js';
+import type { Finding } from './doctor.js';
 import type { Yaml } from './cli-schema.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -239,6 +244,45 @@ async function cmdStatus() {
   if (!ok) process.exitCode = 1;
 }
 
+async function cmdDoctor() {
+  const { env, problems } = check();
+  const out: Finding[] = [];
+  if (problems.length) out.push({ id: 'config', label: 'Configuration', verdict: 'fail', detail: `${problems.length} problem(s): ${problems[0]}${problems.length > 1 ? ' (and more)' : ''}`, fix: 'Run: homedash-config validate' });
+  const writable = (p: string) => { try { accessSync(p, fsc.W_OK); return true; } catch { return false; } };
+  const dbPath = resolve(env.DB_PATH ?? join(APP, 'server', 'data', 'homedash.db'));
+  out.push(...localFindings({
+    nodeVersion: process.version,
+    secretsMode: existsSync(SECRETS_FILE) && process.platform !== 'win32' ? statSync(SECRETS_FILE).mode : undefined,
+    dbDirWritable: writable(dirname(dbPath)) || !existsSync(dirname(dbPath)),
+    backupDir: env.BACKUP_DIR || undefined, backupDirWritable: env.BACKUP_DIR ? writable(env.BACKUP_DIR) : undefined,
+    distDir: env.SERVE_DIST || undefined, distExists: env.SERVE_DIST ? existsSync(env.SERVE_DIST) : undefined,
+  }));
+  const insecure = new Agent({ connect: { rejectUnauthorized: false } });
+  for (const t of targetsFor(env)) {
+    const isPve = t.id.startsWith('proxmox');
+    const url = isPve ? `${t.url.replace(/\/+$/, '')}/api2/json/version` : t.url;
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(6000), redirect: 'manual',
+        headers: t.pveToken ? { Authorization: `PVEAPIToken=${t.pveToken.id}=${t.pveToken.secret}` } : undefined,
+        // @ts-expect-error undici dispatcher is not in the DOM fetch typings
+        dispatcher: isPve && env.PVE_INSECURE_TLS === 'true' ? insecure : undefined,
+      });
+      out.push({ id: t.id, label: t.label, ...interpretHttp(t.label, res.status === 0 ? 302 : res.status, !!t.pveToken) });
+    } catch (e) {
+      const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+      out.push({ id: t.id, label: t.label, ...interpretNetworkError(t.label, `${cause?.code ?? ''} ${cause?.message ?? (e as Error).message}`) });
+    }
+  }
+  const mark = { ok: ' ok ', warn: 'warn', fail: 'FAIL' } as const;
+  out.splice(0, out.length, ...softenFailover(out));
+  for (const f of out) { say(`[${mark[f.verdict]}] ${f.label}: ${f.detail}`); if (f.fix && f.verdict !== 'ok') say(`       -> ${f.fix}`); }
+  const n = summary(out);
+  say(`
+${n.ok} ok, ${n.warn} to look at, ${n.fail} failing.`);
+  process.exitCode = exitCode(out);
+}
+
 function templateFor(tmpl: string, d: Yaml, item?: unknown): string {
   const file = join(INFRA, tmpl);
   if (!existsSync(file)) throw new Error(`template ${tmpl} not found in ${INFRA}`);
@@ -344,6 +388,7 @@ const HELP = `homedash-config <command>
   init [--force]                  write ${YAML_FILE} and ${SECRETS_FILE}
   validate                        check the YAML and list which integrations are on
   status                          validate + ask the running server
+  doctor                          try every address and folder in use; say what is wrong and how to fix it
   apply [--restart] [--dry-run] [--no-nginx]
                                   render ${ENV_FILE}, nginx vhosts and host/stack files
   print-env                       show the .env that apply would write (secrets masked)
@@ -354,6 +399,7 @@ switch (cmd) {
   case 'init': cmdInit(); break;
   case 'validate': if (!cmdValidate()) process.exitCode = 1; break;
   case 'status': await cmdStatus(); break;
+  case 'doctor': await cmdDoctor(); break;
   case 'apply': cmdApply(); break;
   case 'print-env': cmdPrintEnv(); break;
   case 'help': case '--help': case '-h': say(HELP); break;

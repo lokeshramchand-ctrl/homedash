@@ -48,6 +48,24 @@ jobs:
       - if: failure()
         run: cat /tmp/backend.log
 
+  docker:
+    # The image must build and the container must answer, with the same non-root, read-only setup compose uses.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t homedash:ci .
+      - name: Run it and check it answers
+        run: |
+          docker run -d --name hd --read-only --cap-drop ALL --security-opt no-new-privileges:true             -v hd-data:/data -e DB_PATH=/data/homedash.db -e COOKIE_SECURE=false -p 3000:3000 homedash:ci
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3000/api/auth/sso/config >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:3000/api/auth/sso/config
+          curl -sf http://127.0.0.1:3000/ | grep -qi '<div id="root"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/guests)" = "401"
+      - name: Create a user inside the container
+        run: docker exec -e NEW_PASSWORD=ci-test-password-1234 hd node --disable-warning=ExperimentalWarning build/create-user.js admin admin --no-2fa
+      - if: failure()
+        run: docker logs hd
+
   config-example:
     # The shipped example must stay valid: every key it documents is checked by the same code the installer runs.
     runs-on: ubuntu-latest

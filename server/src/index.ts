@@ -44,6 +44,7 @@ import { applyConfiguredPolicy } from './policy.js';
 import { registerMaintenance } from './maintenance.js';
 import { registerSelfBackup, startSelfBackup } from './selfbackup.js';
 import { registerSetup } from './setup.js';
+import { collectRoutes, registerOpenApi } from './openapi.js';
 import { registerDiscover } from './discover.js';
 import { registerPrefs } from './prefs.js';
 import { tlsOptions, watchTls } from './tls.js';
@@ -104,6 +105,7 @@ app.addHook('onRequest', async (req, reply) => {
 connectDb();
 applyConfiguredPolicy(app.log);
 await app.register(cookie);
+collectRoutes(app); // first of all: it records the routes registered after it for the API reference
 registerClusterContext(app); // first: auth and scope checks must already see the selected cluster
 registerRateLimit(app);
 registerAuth(app);
@@ -141,6 +143,7 @@ registerDiscover(app);
 registerMaintenance(app);
 registerSelfBackup(app);
 registerSetup(app);
+registerOpenApi(app);
 registerAuditLog(app);
 registerQemu(app);
 registerVmOps(app);

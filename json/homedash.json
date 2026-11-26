@@ -14,7 +14,7 @@
   "website": "https://github.com/lokeshramchand-ctrl/homedash",
   "repository": "https://github.com/lokeshramchand-ctrl/homedash",
   "logo": "https://cdn.jsdelivr.net/gh/lokeshramchand-ctrl/homedash@main/public/icon.svg",
-  "description": "A single-user dashboard for a Proxmox homelab: guest control with scenes and schedules, health score, backup and snapshot protection, capacity forecasts, network map and an nginx manager. Features such as Grafana, Loki logs, CrowdSec, a database manager, OIDC sign-in and two-step login switch on from one YAML file.",
+  "description": "A dashboard for a Proxmox homelab or small team: guest control with scenes and schedules, health score, backup and snapshot protection, capacity forecasts, network map and an nginx manager. Features such as Grafana, Loki logs, CrowdSec, a database manager, OIDC sign-in and two-step login switch on from one YAML file.",
   "install_methods": [
     {
       "type": "default",

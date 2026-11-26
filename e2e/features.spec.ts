@@ -79,3 +79,15 @@ test('an API token signs in without a cookie (what the mobile app does for two-s
     await call(page, 'DELETE', `/auth/tokens/${id}`);
   }
 });
+
+test('the API reference lists the real routes with their roles', async ({ page }) => {
+  await signIn(page);
+  const r = await call(page, 'GET', '/admin/openapi.json');
+  expect(r.status).toBe(200);
+  const doc = r.body as { openapi: string; paths: Record<string, Record<string, { 'x-required-role': string }>> };
+  expect(doc.openapi).toBe('3.0.3');
+  expect(Object.keys(doc.paths).length).toBeGreaterThan(100);
+  expect(doc.paths['/api/guests'].get['x-required-role']).toBe('viewer');
+  expect(doc.paths['/api/admin/setup'].get['x-required-role']).toBe('admin');
+  expect(doc.paths['/api/admin/openapi.json']).toBeTruthy(); // it lists itself
+});
