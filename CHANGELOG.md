@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-11-26
 
 - Fix: a server with no Proxmox settings at all (a first Docker run, or an install that is not finished) answered every request, sign-in included, with "No cluster". It now starts, lets you sign in, and shows "Not set up yet" with the Setup checklist.
 - `homedash-config doctor`: tries every configured address and folder (Proxmox with the token, Grafana, Kuma, Loki, alert services, LLM agents, backup and data folders, Node version, secrets file mode) and explains each failure in plain words with the fix. A dead cluster member is only a warning while another answers.
