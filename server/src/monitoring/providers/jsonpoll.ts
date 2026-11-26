@@ -1,8 +1,8 @@
 // Any HTTP JSON endpoint turned into up/down checks. The admin says where the list is and which fields hold the name and the status.
 // Paths: "$" is the whole answer; otherwise dot-separated names and [n] indexes, for example data.items[0].state.
 import type { LoadedSource } from '../store.js';
-import type { Check, Polled, Provider, Status } from '../types.js';
-import { cap, getJson, trimUrl } from './http.js';
+import type { Check, MonAlert, Polled, Provider, Status } from '../types.js';
+import { cap, getJson, levelOf, trimUrl } from './http.js';
 
 const MAX_ITEMS = 500;
 
@@ -62,3 +62,55 @@ export const jsonPollProvider = (s: LoadedSource): Provider => ({
     return { checks: mapJson(await getJson(trimUrl(s.config.url), { bearer: s.secrets.token }), s.config), alerts: [] };
   },
 });
+
+// ---- a JSON list read as alerts ----------------------------------------------------------------------------------------------
+export interface AlertMapping {
+  items_path?: string; name_path?: string; summary_path?: string; level_path?: string; level_map?: string; since_path?: string;
+  status_path?: string; alert_values?: string; key_path?: string;
+}
+
+/** Pure: "5=error, critical=error, warning=warn" to a lookup. Only error, warn and info are meaningful targets. */
+export function parseLevelMap(text: string | undefined): Record<string, 'info' | 'warn' | 'error'> {
+  const out: Record<string, 'info' | 'warn' | 'error'> = {};
+  for (const part of String(text ?? '').split(/[,\n]/)) {
+    const [k, v] = part.split('=').map((x) => x.trim().toLowerCase());
+    if (k && (v === 'info' || v === 'warn' || v === 'error')) out[k] = v;
+  }
+  return out;
+}
+
+/** Pure: a time as a number of seconds or milliseconds, or an ISO string, to milliseconds; null when it is none of those. */
+export function toMillis(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v < 1e12 ? v * 1000 : v;
+  if (typeof v === 'string' && v.trim()) {
+    if (/^\d+(\.\d+)?$/.test(v.trim())) return toMillis(Number(v));
+    const t = Date.parse(v);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
+}
+
+/**
+ * Pure: a JSON list where every item is a problem (optionally only those whose status is one of `alert_values`).
+ * Throws when the list path does not lead to a list.
+ */
+export function mapJsonAlerts(body: unknown, m: AlertMapping): MonAlert[] {
+  const list = getPath(body, m.items_path ?? '$');
+  if (!Array.isArray(list)) throw new Error(`"${cap(m.items_path, 80)}" does not lead to a list in the answer`);
+  const levels = parseLevelMap(m.level_map);
+  const only = String(m.alert_values ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const out: MonAlert[] = [];
+  for (const [i, item] of list.slice(0, MAX_ITEMS).entries()) {
+    const name = getPath(item, m.name_path ?? '');
+    if (typeof name !== 'string' && typeof name !== 'number') continue;
+    if (only.length && !only.includes(String(getPath(item, m.status_path ?? '') ?? '').trim().toLowerCase())) continue;
+    const rawLevel = m.level_path ? String(getPath(item, m.level_path) ?? '').trim().toLowerCase() : '';
+    const summary = m.summary_path ? getPath(item, m.summary_path) : '';
+    const key = m.key_path ? getPath(item, m.key_path) : undefined;
+    out.push({
+      key: String(key ?? `${name}#${i}`).slice(0, 200), name: String(name).slice(0, 200), level: levels[rawLevel] ?? levelOf(rawLevel), state: 'firing',
+      since: m.since_path ? toMillis(getPath(item, m.since_path)) : null, summary: typeof summary === 'string' ? summary.slice(0, 300) : '', instances: 1, url: null,
+    });
+  }
+  return out;
+}
