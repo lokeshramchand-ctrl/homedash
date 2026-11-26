@@ -17,3 +17,6 @@ HANDOFF.md
 # Browser test output
 test-results/
 playwright-report/
+
+# first-user-audit evidence
+qa/first-users/
