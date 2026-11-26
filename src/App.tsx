@@ -34,6 +34,7 @@ import Data from './pages/Data';
 import Llama from './pages/Llama';
 import Tiles from './pages/Tiles';
 import Setup, { SetupNudge } from './pages/Setup';
+import Backups from './pages/Backups';
 import type { AppConfig, Features, Guest } from './types';
 
 const ALL_NAV: { id: string; label: string; icon: IconName; group: string; feature?: keyof Features; admin?: boolean }[] = [
@@ -60,10 +61,11 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
   { id: 'access', label: 'Access', icon: 'settings', group: 'Settings' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', group: 'Settings' },
   { id: 'setup', label: 'Setup', icon: 'check', group: 'Settings', admin: true },
+  { id: 'backups', label: 'Backups and audit', icon: 'disk', group: 'Settings', admin: true },
 ];
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
-  crowdsec: 'Search…', tiles: 'Search services…', access: 'Search…', setup: 'Search…', data: 'Search…', llama: 'Search…',
+  crowdsec: 'Search…', tiles: 'Search services…', access: 'Search…', setup: 'Search…', backups: 'Search…', data: 'Search…', llama: 'Search…',
   cluster: 'Search…', scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
@@ -320,6 +322,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {current.id === 'llama' && <Llama />}
             {current.id === 'tiles' && <Tiles role={role} />}
             {current.id === 'setup' && <Setup />}
+            {current.id === 'backups' && <Backups />}
           </main>
         </div>
       </div>

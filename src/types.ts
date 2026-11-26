@@ -433,3 +433,6 @@ export interface VersionInfo { enabled: boolean; current: string; latest: string
 export interface SetupCheck { id: string; title: string; status: 'ok' | 'todo' | 'warn'; detail: string; fix?: string; page?: string }
 export interface SetupIntegration { id: string; name: string; what: string; page: string | null; enabled: boolean; snippet: string; secrets: string[] }
 export interface SetupInfo { checks: SetupCheck[]; progress: { done: number; total: number }; integrations: SetupIntegration[] }
+
+export interface BackupInfo { enabled: boolean; keep: number; everyHours: number; files: { name: string; size: number; at: string }[] }
+export interface AuditReport { ok: boolean; checked: number; head: string | null; brokenAt?: number; problem?: string }

@@ -30,3 +30,13 @@ Pull to refresh on every screen. Data auto-refreshes while the app is in the for
 - Protected guests (`PROTECTED_VMIDS`) are shown but cannot be acted on; the server enforces this too.
 - `src/types.ts` and `src/format.ts` are copies of the web UI files. Keep them in sync when the contract changes.
 - Not yet verified on a device or emulator: only type-checked and bundled with `expo export`.
+
+## Signing in with an API token
+
+If your account uses two-step sign-in or single sign-on, the password form cannot complete the sign-in. Choose **Use an API token instead** on the login screen:
+
+1. In the web UI open **Access > API tokens** and create a token (a viewer token is enough to look around; pick operator to start and stop guests). Copy it, it is shown once.
+2. Paste it in the app with your dashboard address. It is kept in the device's secure storage.
+3. To sign out everywhere, revoke the token on the Access page. Tokens expire on their own (90 days by default).
+
+A token never carries more access than the account that made it, and it cannot change account security.

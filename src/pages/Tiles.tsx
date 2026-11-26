@@ -6,6 +6,7 @@ import { Logo, ServiceForm, emptyDraft } from '../components/ServiceForm';
 import type { Draft } from '../components/ServiceForm';
 import { timeAgo } from '../format';
 import { useQuery, useSearch, useToast } from '../hooks';
+import { layoutFileText, parseLayoutFile } from '../layoutfile';
 import type { Tile, TileAdmin, TileCatalog, TileSuggestion } from '../types';
 
 const TONE: Record<Tile['state'], Tone> = { ok: 'green', warn: 'amber', down: 'red', pending: 'gray' };
@@ -209,6 +210,11 @@ export default function Tiles({ role }: { role: string }) {
                     <button className={compact ? '' : 'on'} onClick={() => setLayout({ view: 'cards' })} aria-pressed={!compact}>Cards</button>
                     <button className={compact ? 'on' : ''} onClick={() => setLayout({ view: 'launcher' })} aria-pressed={compact}>Launcher</button>
                   </div>
+                  <button className="btn btn-sm" onClick={() => exportLayout(layout)} title="Save your order, pins and colours to a file"><Icon name="download" size={14} />Export layout</button>
+                  <label className="btn btn-sm" title="Load a layout file saved earlier">
+                    <Icon name="upload" size={14} />Import layout
+                    <input type="file" accept="application/json,.json" hidden aria-label="Import layout file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importLayout(f, setLayout, toast); }} />
+                  </label>
                   <div className="swatches" role="group" aria-label="Accent colour">
                     {ACCENTS.map((c) => <button key={c} className={`swatch ${layout.accent === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setLayout({ accent: c })} aria-label={`Accent ${c}`} aria-pressed={layout.accent === c} />)}
                   </div>
@@ -253,4 +259,18 @@ function Finder({ onClose, onPick }: { onClose: () => void; onPick: (s: TileSugg
       )}
     </Modal>
   );
+}
+
+function exportLayout(l: Layout) {
+  const url = URL.createObjectURL(new Blob([layoutFileText(l)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = 'homedash-services-layout.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function importLayout(file: File, set: (p: Partial<Layout>) => void, toast: { success: (m: string) => void; error: (m: string) => void }) {
+  const parsed = parseLayoutFile(await file.text());
+  if (!parsed) { toast.error('That file is not a homedash Services layout'); return; }
+  set(parsed);
+  toast.success('Layout imported');
 }

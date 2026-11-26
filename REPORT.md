@@ -4,7 +4,7 @@ Four workstreams. A box is ticked only when the work is done, verified and pushe
 
 - [x] **1. Make it trustworthy**
 - [x] **2. User-friendliness**
-- [ ] **3. Features**
+- [x] **3. Features**
 - [ ] **4. Project support**
 
 ---
@@ -53,3 +53,26 @@ Installer in a real container, `host-addons.sh`, real Proxmox/PBS/HA, passkeys w
 ### Deliberately not done in this item
 - **Editing `homedash.yaml` from the browser.** The Setup page shows the exact YAML instead. Writing the config from the web UI would let the web app rewrite its own configuration and restart itself; that is a security decision to make on purpose, not as a side effect. Say so if you want it.
 - **Translations (i18n).** Every string is English and inline. Doing it properly means extracting about 1,500 strings; it is better done once there is a target language.
+
+---
+
+## 3. Features: done
+
+| Feature | What it does | Verified by |
+|---|---|---|
+| **Backups and audit page** (Settings, administrators) | Run a backup of homedash's own data from the UI, see the list, restore steps; verify the audit chain in one click; download the trail as JSON lines or CEF (the download now has a proper file name). When backups are off it shows the exact YAML to switch them on. | Browser test: back up, see it listed, verify, download link |
+| **Services layout export / import** | Save order, pins, view and colour to a file; load it elsewhere. Imported files are untrusted: only known fields survive, with size and length limits; anything else is refused with a message. | Browser test: export, change, import, refuse a bad file |
+| **Mobile app: API-token sign-in** | Accounts with two-step sign-in or single sign-on could not use the app at all (it only had a password form). It now offers "Use an API token instead"; the token is kept in secure storage and sent as a Bearer header; sign-out forgets it. | Mobile typecheck; browser test of the server contract the app relies on (token works with no cookie, logout is refused for tokens) |
+
+Also fixed on the way: error text on an unreachable service card failed colour contrast (found by the accessibility test, which now covers that state on purpose).
+
+### Verified
+- Server tests 127 pass, browser tests 12 pass (Chrome), mobile typecheck clean.
+
+### Considered and deliberately not built
+| Idea | Why not |
+|---|---|
+| Built-in ACME (Let's Encrypt) | Needs a real certificate authority and public DNS or an open port 80. I cannot exercise it here, and a certificate client that has never issued a certificate is a liability. Use a reverse proxy with ACME (Caddy, nginx + certbot) and point `server.tls` at the files; homedash already picks up renewals. |
+| Web Push | Needs a browser push service and signing keys; cannot be proven without real devices. ntfy, Gotify, Telegram and the other 6 channels already push to phones. |
+| Docker image update notices | Needs a real Docker host and registry to test against. |
+| Real brand logos | Needs bundling third-party artwork and a licence decision. The monogram logos work and meet contrast. |

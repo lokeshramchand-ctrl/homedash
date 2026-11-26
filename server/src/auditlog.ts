@@ -57,7 +57,8 @@ export function registerAuditLog(app: FastifyInstance) {
     const fmt = req.query.format === 'cef' ? 'cef' : req.query.format === 'json' || !req.query.format ? 'json' : null;
     if (!fmt) throw new HttpError(400, 'BAD_REQUEST', 'format must be json or cef');
     const rows = auditRows(after, limit);
-    reply.header('Content-Type', 'application/x-ndjson; charset=utf-8').header('X-Last-Id', String(rows.at(-1)?.id ?? after));
+    reply.header('Content-Type', 'application/x-ndjson; charset=utf-8').header('X-Last-Id', String(rows.at(-1)?.id ?? after))
+      .header('Content-Disposition', `attachment; filename="homedash-audit.${fmt === 'cef' ? 'cef' : 'jsonl'}"`);
     return rows.map((r) => line(r, fmt)).join('\n') + (rows.length ? '\n' : '');
   });
 }
