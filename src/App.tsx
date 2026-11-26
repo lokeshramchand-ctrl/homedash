@@ -24,11 +24,23 @@ import Logs from './pages/Logs';
 import Login from './pages/Login';
 import Nginx from './pages/Nginx';
 import Overview from './pages/Overview';
-import type { AppConfig, Guest } from './types';
+import { TwoStepGate, TwoStepSheet } from './components/TwoStep';
+import Access from './pages/Access';
+import Nodes from './pages/Nodes';
+import { ClusterPicker } from './components/Cluster';
+import { select, selectedCluster, selectedNode } from './selection';
+import Crowdsec from './pages/Crowdsec';
+import Data from './pages/Data';
+import Llama from './pages/Llama';
+import Tiles from './pages/Tiles';
+import Setup, { SetupNudge } from './pages/Setup';
+import Backups from './pages/Backups';
+import type { AppConfig, Features, Guest } from './types';
 
-const NAV: { id: string; label: string; icon: IconName; group: string }[] = [
+const ALL_NAV: { id: string; label: string; icon: IconName; group: string; feature?: keyof Features; admin?: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: 'grid', group: 'Workspace' },
   { id: 'node', label: 'Node', icon: 'node', group: 'Datacenter' },
+  { id: 'cluster', label: 'Cluster', icon: 'network', group: 'Datacenter' },
   { id: 'guests', label: 'Guests', icon: 'server', group: 'Datacenter' },
   { id: 'gpu', label: 'GPU & passthrough', icon: 'cpu', group: 'Datacenter' },
   { id: 'tasks', label: 'Task log', icon: 'tasks', group: 'Datacenter' },
@@ -42,12 +54,19 @@ const NAV: { id: string; label: string; icon: IconName; group: string }[] = [
   { id: 'grafana', label: 'Grafana', icon: 'analytics', group: 'Monitoring' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'alert', group: 'Monitoring' },
   { id: 'logs', label: 'Logs', icon: 'list', group: 'Monitoring' },
+  { id: 'crowdsec', label: 'CrowdSec', icon: 'lock', group: 'Security', feature: 'crowdsec' },
+  { id: 'data', label: 'Data', icon: 'disk', group: 'Services', feature: 'data' },
+  { id: 'tiles', label: 'Services', icon: 'grid', group: 'Services', feature: 'tiles' },
+  { id: 'llama', label: 'LLM server', icon: 'cpu', group: 'Services', feature: 'llama' },
+  { id: 'access', label: 'Access', icon: 'settings', group: 'Settings' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', group: 'Settings' },
+  { id: 'setup', label: 'Setup', icon: 'check', group: 'Settings', admin: true },
+  { id: 'backups', label: 'Backups and audit', icon: 'disk', group: 'Settings', admin: true },
 ];
-const GROUPS = [...new Set(NAV.map((n) => n.group))];
 const SEARCH_HINT: Record<string, string> = {
   overview: 'Search guests…', node: 'Filter interfaces…', guests: 'Search name, vmid or tag…', tasks: 'Filter tasks…', nginx: 'Search domain, upstream or file…',
-  scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
+  crowdsec: 'Search…', tiles: 'Search services…', access: 'Search…', setup: 'Search…', backups: 'Search…', data: 'Search…', llama: 'Search…',
+  cluster: 'Search…', scenes: 'Search…', health: 'Search…', capacity: 'Search…', protection: 'Search guests…', netmap: 'Search guest, IP or MAC…',
   grafana: 'Search dashboards, folders or tags…', kuma: 'Search monitors…', logs: 'Filter messages…', gpu: 'Search…', diagnostics: 'Search…', notifications: 'Search…',
 };
 
@@ -59,7 +78,8 @@ const THEME_LABEL: Record<ThemePref, string> = { system: 'System theme', light: 
 
 // Flat brand colours; a stable hash of the username picks one, so each user keeps the same
 // solid-colour monogram across sessions. No gradients — just the initials, cleanly set.
-const AVATAR_COLORS = ['#ed272e', '#0870b9', '#3eb850', '#5a6fc9', '#0b7a8c', '#c27a16'];
+// Every colour keeps white initials above the 4.5:1 contrast ratio (checked by the accessibility test).
+const AVATAR_COLORS = ['#c81d25', '#0870b9', '#1f7a35', '#4a5ab8', '#0b7a8c', '#9a5b00'];
 function avatarColor(user: string): string {
   let h = 0;
   for (let i = 0; i < user.length; i++) h = (h * 31 + user.charCodeAt(i)) >>> 0;
@@ -80,11 +100,14 @@ export default function App() {
 
 function Root() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
+  const [role, setRole] = useState('');
+  const [enroll, setEnroll] = useState(false);
+  const [codeStep, setCodeStep] = useState(false);
   const [config, setConfig] = useState<AppConfig>({});
   const toast = useToast();
 
   useEffect(() => {
-    api.me().then((u) => setUser(u.username)).catch(() => setUser(null));
+    refresh();
     loadConfig().then(setConfig);
     const expired = () => setUser((u) => { if (u) toast.error('Session expired — please sign in again'); return null; });
     window.addEventListener('auth:expired', expired);
@@ -92,12 +115,53 @@ function Root() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // After the first factor (or an SSO redirect) the server says whether a code or enrolment is still needed.
+  function refresh() {
+    api.me()
+      .then((u) => { setRole(u.role ?? ''); setEnroll(u.mfa === 'enroll'); setCodeStep(false); setUser(u.username); })
+      .catch((e) => { setCodeStep((e as { code?: string }).code === 'MFA_REQUIRED'); setUser(null); });
+  }
+
   if (user === undefined) return <div className="boot"><Spinner size={28} /></div>;
-  if (user === null) return <Login onLogin={setUser} />;
-  return <Shell user={user} config={config} onLogout={() => setUser(null)} />;
+  if (user === null) return <Login key={codeStep ? 'code' : 'password'} onLogin={refresh} initialStep={codeStep ? 'code' : 'password'} />;
+  const signOut = () => { api.logout().catch(() => { /* already gone */ }).finally(() => { setEnroll(false); setUser(null); }); };
+  if (enroll) return <TwoStepGate user={user} onDone={refresh} onSignOut={signOut} />;
+  return <Shell user={user} role={role} config={config} onLogout={() => setUser(null)} />;
 }
 
-function Shell({ user, config, onLogout }: { user: string; config: AppConfig; onLogout: () => void }) {
+const ROLE_LABEL: Record<string, string> = { admin: 'Administrator', operator: 'Operator', viewer: 'Viewer' };
+
+function Shell({ user, role, config, onLogout }: { user: string; role: string; config: AppConfig; onLogout: () => void }) {
+  const [twoStep, setTwoStep] = useState(false);
+  const toast = useToast();
+  // Which cluster and node are selected. Changing either remounts the page so every query starts afresh.
+  const [sel, setSel] = useState({ cluster: selectedCluster(), node: selectedNode() });
+  useEffect(() => {
+    const f = () => setSel({ cluster: selectedCluster(), node: selectedNode() });
+    window.addEventListener('cluster:changed', f);
+    return () => window.removeEventListener('cluster:changed', f);
+  }, []);
+  const clusters = useQuery(api.clusters, [sel.cluster], 30_000);
+  useEffect(() => {
+    const d = clusters.data;
+    if (!d) return;
+    // First visit, or the remembered cluster no longer exists: settle on the server's current one.
+    if (!sel.cluster || !d.clusters.some((c) => c.id === sel.cluster)) select(d.current);
+  }, [clusters.data, sel.cluster]);
+  // A risky action that needs a second person's approval: tell the user where to follow it up.
+  useEffect(() => {
+    const f = (e: Event) => {
+      const a = (e as CustomEvent<{ summary?: string; status?: string }>).detail;
+      toast.success(a?.status === 'approved' ? 'Approved: open Access > Approvals and press Run' : `Waiting for approval: ${a?.summary ?? 'this action'}. It is listed under Access > Approvals.`);
+    };
+    window.addEventListener('approval:required', f);
+    return () => window.removeEventListener('approval:required', f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const features = useQuery(api.features, [], 0);
+  const version = useQuery(api.version, [], 3_600_000);
+  const NAV = useMemo(() => ALL_NAV.filter((n) => (!n.feature || features.data?.[n.feature]) && (!n.admin || role === 'admin')), [features.data, role]);
+  const GROUPS = useMemo(() => [...new Set(NAV.map((n) => n.group))], [NAV]);
   const [tick, setTick] = useState(0);
   const [spin, setSpin] = useState(false);
   const bump = useCallback(() => { setTick((t) => t + 1); setSpin(true); setTimeout(() => setSpin(false), 700); }, []);
@@ -172,6 +236,7 @@ function Shell({ user, config, onLogout }: { user: string; config: AppConfig; on
   return (
     <RefreshCtx.Provider value={{ tick, bump }}>
      <SearchCtx.Provider value={{ q, setQ }}>
+      <a className="skip-link" href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</a>
       <div className={`app ${collapsed ? 'mini' : ''} ${menu ? 'drawer' : ''}`}>
         <aside className="side" aria-label="Primary">
           <div className="side-brand">
@@ -206,6 +271,7 @@ function Shell({ user, config, onLogout }: { user: string; config: AppConfig; on
             <ol className="crumbs" aria-label="Breadcrumb">
               {crumbs.map((c, i) => <li key={i} className={i === crumbs.length - 1 ? 'cur' : ''}>{c}</li>)}
             </ol>
+            <ClusterPicker data={clusters.data} cluster={sel.cluster} node={sel.node} />
             <label className="search topsearch hide-sm">
               <Icon name="search" size={16} />
               <input value={q} onChange={(e) => onSearch(e.target.value)} placeholder={SEARCH_HINT[current.id]} aria-label="Search" />
@@ -219,33 +285,48 @@ function Shell({ user, config, onLogout }: { user: string; config: AppConfig; on
               </a>
               <div className="me">
                 <Avatar user={user} />
-                <div className="hide-sm"><b>{user}</b><small>Administrator</small></div>
+                <div className="hide-sm"><b>{user}</b><small>{ROLE_LABEL[role] ?? 'Administrator'}</small></div>
+                {features.data?.mfa && <button className="icon-btn" onClick={() => setTwoStep(true)} aria-label="Two-step sign-in" title="Two-step sign-in"><Icon name="lock" size={17} /></button>}
                 <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out"><Icon name="logout" size={17} /></button>
               </div>
             </div>
           </header>
 
-          <main className="content" key={parts.join('/')}>
-            {page === 'overview' && <Overview />}
-            {page === 'node' && <Node tab={parts[1]} />}
-            {page === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}
-            {page === 'tasks' && <Tasks />}
-            {page === 'gpu' && <Gpu />}
-            {page === 'diagnostics' && <Diagnostics />}
-            {page === 'scenes' && <Scenes />}
-            {page === 'health' && <Health />}
-            {page === 'protection' && <Protection />}
-            {page === 'capacity' && <Capacity />}
-            {page === 'netmap' && <Netmap />}
-            {page === 'nginx' && <Nginx />}
-            {page === 'grafana' && <Grafana uid={parts[1]} />}
-            {page === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
-            {page === 'logs' && <Logs />}
-            {page === 'notifications' && <Notifications />}
-            {!NAV.some((n) => n.id === page) && <Overview />}
+          <main className="content" id="main-content" tabIndex={-1} key={`${parts.join('/')}|${sel.cluster}|${sel.node}`}>
+            {role === 'admin' && version.data?.available && (
+              <div className="callout warn" role="status" style={{ marginBottom: 16 }}>
+                <Icon name="info" size={16} /><span><b>homedash {version.data.latest} is available</b> (you run {version.data.current}). Open the container console in Proxmox and run <code>update</code>.{version.data.url && <> <a className="link" href={version.data.url} target="_blank" rel="noopener noreferrer">What changed</a></>}</span>
+              </div>
+            )}
+            {current.id === 'overview' && role === 'admin' && <SetupNudge />}
+            {current.id === 'overview' && <Overview />}
+            {current.id === 'node' && <Node tab={parts[1]} />}
+            {current.id === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}
+            {current.id === 'tasks' && <Tasks />}
+            {current.id === 'cluster' && <Nodes />}
+            {current.id === 'gpu' && <Gpu />}
+            {current.id === 'diagnostics' && <Diagnostics />}
+            {current.id === 'scenes' && <Scenes />}
+            {current.id === 'health' && <Health />}
+            {current.id === 'protection' && <Protection />}
+            {current.id === 'capacity' && <Capacity />}
+            {current.id === 'netmap' && <Netmap />}
+            {current.id === 'nginx' && <Nginx />}
+            {current.id === 'grafana' && <Grafana uid={parts[1]} />}
+            {current.id === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
+            {current.id === 'logs' && <Logs />}
+            {current.id === 'notifications' && <Notifications role={role} />}
+            {current.id === 'access' && <Access role={role} user={user} />}
+            {current.id === 'crowdsec' && <Crowdsec />}
+            {current.id === 'data' && <Data parts={parts.slice(1)} />}
+            {current.id === 'llama' && <Llama />}
+            {current.id === 'tiles' && <Tiles role={role} />}
+            {current.id === 'setup' && <Setup />}
+            {current.id === 'backups' && <Backups />}
           </main>
         </div>
       </div>
+      {twoStep && <TwoStepSheet user={user} onClose={() => setTwoStep(false)} />}
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
      </SearchCtx.Provider>
     </RefreshCtx.Provider>

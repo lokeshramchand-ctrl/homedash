@@ -10,3 +10,10 @@ server/data/
 data/
 *.db
 *.db-*
+
+# Local handoff note for the next working session
+HANDOFF.md
+
+# Browser test output
+test-results/
+playwright-report/

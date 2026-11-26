@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { api, normalizeUrl, setBaseUrl, setExpiredHandler } from './api';
+import { api, looksLikeToken, normalizeUrl, setBaseUrl, setExpiredHandler, setToken } from './api';
 
 const KEY = 'serverUrl';
+const TOKEN_KEY = 'apiToken';
 
 type Status = 'loading' | 'out' | 'in';
 
@@ -13,6 +14,7 @@ interface Session {
   serverUrl: string;
   notice: string | null;
   signIn: (url: string, username: string, password: string) => Promise<void>;
+  signInWithToken: (url: string, token: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -41,6 +43,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!saved) { setStatus('out'); return; }
       setServerUrl(saved);
       setBaseUrl(saved);
+      try { setToken((await SecureStore.getItemAsync(TOKEN_KEY)) ?? ''); } catch { /* no saved token */ }
       try {
         const me = await api.me();
         setUser(me.username);
@@ -63,13 +66,30 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setStatus('in');
   }, []);
 
+  const signInWithToken = useCallback(async (rawUrl: string, rawToken: string) => {
+    const url = normalizeUrl(rawUrl);
+    if (!url) throw new Error('Enter your dashboard address');
+    if (!looksLikeToken(rawToken)) throw new Error('That does not look like a homedash API token (it starts with hd_)');
+    setBaseUrl(url);
+    setToken(rawToken);
+    let me: { username: string };
+    try { me = await api.me(); } catch (e) { setToken(''); throw e; }
+    try { await SecureStore.setItemAsync(KEY, url); await SecureStore.setItemAsync(TOKEN_KEY, rawToken.trim()); } catch { /* remembered next time only if storage works */ }
+    setServerUrl(url);
+    setNotice(null);
+    setUser(me.username);
+    setStatus('in');
+  }, []);
+
   const signOut = useCallback(async () => {
     try { await api.logout(); } catch { /* cookie may already be gone */ }
+    setToken('');
+    try { await SecureStore.deleteItemAsync(TOKEN_KEY); } catch { /* nothing stored */ }
     setUser(null);
     setNotice(null);
     setStatus('out');
   }, []);
 
-  const value = useMemo(() => ({ status, user, serverUrl, notice, signIn, signOut }), [status, user, serverUrl, notice, signIn, signOut]);
+  const value = useMemo(() => ({ status, user, serverUrl, notice, signIn, signInWithToken, signOut }), [status, user, serverUrl, notice, signIn, signInWithToken, signOut]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

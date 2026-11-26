@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
 
 jobs:
@@ -12,13 +12,82 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci && npm run build
+      - run: npm ci && npx tsc --noEmit && npm run build
       - run: cd server && npm ci && npm run build
       - run: cd mobile && npm ci && npx tsc --noEmit
+
+  server-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd server && npm ci && npm test
+
+  browser:
+    # Opens the built UI in a real browser against the backend (mock Proxmox) and visits every page.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+      - run: cd server && npm ci && npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Start backend
+        env:
+          E2E_PASS: ci-test-password-1234
+        run: |
+          nohup bash e2e/start-backend.sh > /tmp/backend.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3911/api/features >/dev/null 2>&1 || curl -s http://127.0.0.1:3911/ >/dev/null && break; sleep 1; done
+      - run: npx playwright test
+        env:
+          E2E_PASS: ci-test-password-1234
+      - if: failure()
+        run: cat /tmp/backend.log
+
+  docker:
+    # The image must build and the container must answer, with the same non-root, read-only setup compose uses.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t homedash:ci .
+      - name: Run it and check it answers
+        run: |
+          docker run -d --name hd --read-only --cap-drop ALL --security-opt no-new-privileges:true             -v hd-data:/data -e DB_PATH=/data/homedash.db -e COOKIE_SECURE=false -p 3000:3000 homedash:ci
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3000/api/auth/sso/config >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:3000/api/auth/sso/config
+          curl -sf http://127.0.0.1:3000/ | grep -qi '<div id="root"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/guests)" = "401"
+      - name: Create a user inside the container
+        run: docker exec -e NEW_PASSWORD=ci-test-password-1234 hd node --disable-warning=ExperimentalWarning build/create-user.js admin admin --no-2fa
+      - if: failure()
+        run: docker logs hd
+
+  config-example:
+    # The shipped example must stay valid: every key it documents is checked by the same code the installer runs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd server && npm ci && npm run build
+      - name: Validate infra/homedash.example.yaml
+        env:
+          PVE_TOKEN_SECRET: ci-placeholder
+          HOMEDASH_ETC: /tmp/hd-etc
+          HOMEDASH_CONFIG: infra/homedash.example.yaml
+        run: node server/build/homedash-config.js validate
 
   scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck ct/*.sh install/*.sh tools/pve/*.sh
+      - name: shellcheck
+        run: shellcheck -x ct/*.sh install/*.sh tools/pve/*.sh tools/dev/*.sh
+      - name: syntax
+        run: for f in ct/*.sh install/*.sh tools/pve/*.sh tools/dev/*.sh; do bash -n "$f"; done
       - run: python3 -m json.tool json/homedash.json >/dev/null

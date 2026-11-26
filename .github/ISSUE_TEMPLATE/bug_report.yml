@@ -1,0 +1,40 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Please read docs/TROUBLESHOOTING.md and run `homedash-config doctor` first.
+        Security problems: do not open an issue; use the Security tab (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw instead
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of homedash-config doctor and homedash-config status
+      description: Secrets are never printed. Paste it as text.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: homedash version
+      placeholder: from GET /api/version
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it run
+      options:
+        - Proxmox LXC (installer)
+        - Docker
+        - From source
+        - Other
+  - type: input
+    id: pve
+    attributes:
+      label: Proxmox VE version (if relevant)

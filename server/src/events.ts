@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
+import { forEachCluster, multiCluster, where } from './clusters.js';
 import { cfg, pveConfigured } from './config.js';
 import { countEvents, getState, hasRecentAccepted, insertEvent, listEvents, setState } from './db.js';
 import type { EventRow } from './db.js';
@@ -39,40 +40,85 @@ async function recordStart() {
   logEvent('info', 'app', 'Dashboard started', { pid: process.pid, node: process.version });
 }
 
+// Everything below is per cluster: state is keyed by cluster id, and messages name the cluster when there are several.
+const tag = (id: string) => (multiCluster() ? ` [${id}]` : '');
+
 async function hostWatch() {
   if (!pveConfigured()) return;
-  try {
-    const n = await pve<{ uptime?: number }>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/status`);
-    const bootedAt = Date.now() - Number(n.uptime ?? 0) * 1000;
-    const prev = getState('host-boot');
-    if (typeof prev?.bootedAt === 'number' && Math.abs(bootedAt - prev.bootedAt) > 120_000 && bootedAt > prev.bootedAt) {
-      logEvent('error', 'host', 'Proxmox host rebooted', { previousBoot: new Date(prev.bootedAt).toISOString(), bootedAt: new Date(bootedAt).toISOString() });
-    }
-    if (!prev || Math.abs(bootedAt - Number(prev.bootedAt)) > 120_000) setState('host-boot', { bootedAt });
-  } catch { /* guest watcher reports Proxmox being unreachable */ }
+  await forEachCluster(async (c) => {
+    try {
+      // One call gives every node's uptime (on a stand-alone node it is just that node).
+      const nodes = await pve<{ node: string; status?: string; uptime?: number }[]>('GET', '/cluster/resources?type=node');
+      for (const n of nodes) {
+        if (n.status !== 'online') continue;
+        const key = c.id === 'default' && n.node === c.node ? 'host-boot' : `host-boot:${c.id}:${n.node}`;
+        const bootedAt = Date.now() - Number(n.uptime ?? 0) * 1000;
+        const prev = getState(key);
+        if (typeof prev?.bootedAt === 'number' && Math.abs(bootedAt - prev.bootedAt) > 120_000 && bootedAt > prev.bootedAt) {
+          logEvent('error', 'host', `Proxmox host ${where(n.node, c)} rebooted`, { previousBoot: new Date(prev.bootedAt).toISOString(), bootedAt: new Date(bootedAt).toISOString() });
+        }
+        if (!prev || Math.abs(bootedAt - Number(prev.bootedAt)) > 120_000) setState(key, { bootedAt });
+      }
+    } catch { /* the guest watcher reports Proxmox being unreachable */ }
+  });
 }
 
-let guestState = new Map<number, string>();
-let pveDown = false;
+const guestState = new Map<string, { status: string; node: string }>(); // "<cluster>:<vmid>"
+const pveDown = new Set<string>();
 async function guestWatch() {
   if (!pveConfigured()) return;
-  try {
-    const next = new Map<number, string>();
-    for (const g of await listGuests()) {
-      next.set(g.vmid, g.status);
-      const was = guestState.get(g.vmid);
-      if (was && was !== g.status) {
-        // A stop nobody asked the dashboard for is the interesting case.
-        const recent = hasRecentAccepted(g.vmid, Date.now() - 5 * 60_000);
-        const unexpected = g.status === 'stopped' && !recent;
-        logEvent(unexpected ? 'error' : 'info', 'guest', `${g.name} (${g.vmid}) ${was} → ${g.status}${unexpected ? ' (not requested via the dashboard)' : ''}`, { vmid: g.vmid, from: was, to: g.status });
+  await forEachCluster(async (c) => {
+    try {
+      const seen = new Set<string>();
+      for (const g of await listGuests()) {
+        const key = `${c.id}:${g.vmid}`;
+        seen.add(key);
+        const was = guestState.get(key);
+        guestState.set(key, { status: g.status, node: g.node });
+        if (!was) continue;
+        const label = `${g.name} (${g.vmid}${multiCluster() ? `, ${c.name}` : ''})`;
+        if (was.node !== g.node) logEvent('info', 'guest', `${label} moved from node ${was.node} to ${g.node}`, { vmid: g.vmid, from: was.node, to: g.node });
+        if (was.status !== g.status) {
+          // A stop nobody asked the dashboard for is the interesting case.
+          const recent = hasRecentAccepted(g.vmid, Date.now() - 5 * 60_000);
+          const unexpected = g.status === 'stopped' && !recent;
+          logEvent(unexpected ? 'error' : 'info', 'guest', `${label} ${was.status} → ${g.status}${unexpected ? ' (not requested via the dashboard)' : ''}`, { vmid: g.vmid, from: was.status, to: g.status });
+        }
       }
+      for (const k of [...guestState.keys()]) if (k.startsWith(`${c.id}:`) && !seen.has(k)) guestState.delete(k);
+      if (pveDown.delete(c.id)) logEvent('info', 'host', `Proxmox API reachable again${tag(c.id)}`);
+    } catch (e) {
+      if (!pveDown.has(c.id)) { pveDown.add(c.id); logEvent('error', 'host', `Proxmox API unreachable${tag(c.id)}: ${(e as Error).message}`); }
     }
-    guestState = next;
-    if (pveDown) { pveDown = false; logEvent('info', 'host', 'Proxmox API reachable again'); }
-  } catch (e) {
-    if (!pveDown) { pveDown = true; logEvent('error', 'host', `Proxmox API unreachable: ${(e as Error).message}`); }
-  }
+  });
+}
+
+// Cluster health: a node dropping out, and quorum (without it a cluster refuses to change anything).
+const nodeOnline = new Map<string, boolean>();
+const quorum = new Map<string, boolean>();
+async function nodeWatch() {
+  if (!pveConfigured()) return;
+  await forEachCluster(async (c) => {
+    try {
+      const rows = await pve<{ type: string; name: string; online?: number; quorate?: number }[]>('GET', '/cluster/status');
+      for (const r of rows) {
+        if (r.type === 'node') {
+          const key = `${c.id}:${r.name}`;
+          const on = r.online === 1;
+          const was = nodeOnline.get(key);
+          nodeOnline.set(key, on);
+          if (was === true && !on) logEvent('error', 'host', `Node ${r.name} went offline${tag(c.id)}`);
+          else if (was === false && on) logEvent('info', 'host', `Node ${r.name} is back online${tag(c.id)}`);
+        } else if (r.type === 'cluster' && r.quorate !== undefined) {
+          const q = r.quorate === 1;
+          const was = quorum.get(c.id);
+          quorum.set(c.id, q);
+          if (was === true && !q) logEvent('error', 'host', `Cluster lost quorum${tag(c.id)}`);
+          else if (was === false && q) logEvent('info', 'host', `Cluster has quorum again${tag(c.id)}`);
+        }
+      }
+    } catch { /* unreachable clusters are reported by the guest watcher */ }
+  });
 }
 
 /** Kuma status transitions, fed from the scraper. */
@@ -97,8 +143,10 @@ export function startEvents(app: FastifyInstance) {
   setInterval(beat, 30_000).unref();
   setInterval(() => void guestWatch(), 15_000).unref();
   setInterval(() => void hostWatch(), 60_000).unref();
+  setInterval(() => void nodeWatch(), 30_000).unref();
   void guestWatch();
   void hostWatch();
+  void nodeWatch();
 }
 
 /** Marks a deliberate stop so the next start is not reported as a crash. */

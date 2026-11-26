@@ -2,8 +2,24 @@ import { resolve } from 'node:path';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
 import Fastify from 'fastify';
+import type { FastifyInstance } from 'fastify';
+import { registerAdmin } from './admin.js';
+import { registerCluster, registerClusterContext } from './cluster.js';
+import { registerApprovals } from './approvals.js';
 import { registerAuth } from './auth.js';
-import { cfg } from './config.js';
+import { registerPasskeys } from './passkeys.js';
+import { registerTokens } from './tokens.js';
+import { registerCrowdsec } from './crowdsec.js';
+import { registerFeatures } from './features.js';
+import { registerGpuWatch, startGpuWatch } from './gpuwatch.js';
+import { registerLlama } from './llama.js';
+import { registerLoki } from './loki.js';
+import { registerMfa } from './mfa.js';
+import { registerRateLimit } from './ratelimit.js';
+import { registerScim } from './scim.js';
+import { registerQemu } from './qemu.js';
+import { registerVmOps } from './vmops.js';
+import { cfg, dataConfigured } from './config.js';
 import { closeDb, connectDb } from './db.js';
 import { HttpError } from './errors.js';
 import { registerGrafana } from './grafana.js';
@@ -23,13 +39,29 @@ import { registerNode } from './node.js';
 import { registerWindows } from './windows.js';
 import { registerNotify, startNotify } from './notify.js';
 import { registerOidc } from './oidc.js';
+import { registerAuditLog } from './auditlog.js';
+import { applyConfiguredPolicy } from './policy.js';
+import { registerMaintenance } from './maintenance.js';
+import { registerSelfBackup, startSelfBackup } from './selfbackup.js';
+import { registerSetup } from './setup.js';
+import { collectRoutes, registerOpenApi } from './openapi.js';
+import { registerDiscover } from './discover.js';
+import { registerPrefs } from './prefs.js';
+import { tlsOptions, watchTls } from './tls.js';
+import { registerUpdates, startUpdateCheck } from './updates.js';
+import { registerStatus } from './status.js';
+import { registerHa } from './ha.js';
+import { registerTiles, startTiles } from './tiles.js';
 import { registerOverview } from './overview.js';
 
+const tls = tlsOptions(cfg.dbPath);
 const app = Fastify({
+  ...(tls ? { https: tls } : {}),
   trustProxy: cfg.trustProxy,
   bodyLimit: 64 * 1024,
   logger: { level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.cookie', 'req.headers.authorization'] },
-});
+}) as unknown as FastifyInstance;
+if (tls) watchTls(app.server as unknown as import('node:https').Server, cfg.dbPath, app.log);
 
 app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, req, reply) => {
   if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, code: err.code });
@@ -71,8 +103,18 @@ app.addHook('onRequest', async (req, reply) => {
 });
 
 connectDb();
+applyConfiguredPolicy(app.log);
 await app.register(cookie);
+collectRoutes(app); // first of all: it records the routes registered after it for the API reference
+registerClusterContext(app); // first: auth and scope checks must already see the selected cluster
+registerRateLimit(app);
 registerAuth(app);
+registerApprovals(app); // a preHandler hook: must be registered before the routes it guards
+registerMfa(app);
+registerTokens(app);
+registerPasskeys(app);
+registerAdmin(app);
+registerScim(app);
 registerOidc(app);
 registerLogs(app);
 registerOverview(app);
@@ -88,6 +130,32 @@ registerNginxManage(app);
 registerGrafana(app);
 registerKuma(app);
 registerMetrics(app);
+registerFeatures(app);
+registerLoki(app);
+registerCrowdsec(app);
+registerCluster(app);
+registerTiles(app);
+registerHa(app);
+registerStatus(app);
+registerUpdates(app);
+registerPrefs(app);
+registerDiscover(app);
+registerMaintenance(app);
+registerSelfBackup(app);
+registerSetup(app);
+registerOpenApi(app);
+registerAuditLog(app);
+registerQemu(app);
+registerVmOps(app);
+registerLlama(app);
+registerGpuWatch(app);
+// The Data manager pulls in the database drivers (optional dependencies), so it is only loaded when switched on.
+let closeData = async () => {};
+if (dataConfigured()) {
+  const data = await import('./data.js');
+  data.registerData(app);
+  closeData = data.closeData;
+}
 registerInsights(app);
 registerHealth(app);
 registerScenes(app);
@@ -95,10 +163,14 @@ if (cfg.serveDist) await app.register(staticFiles, { root: resolve(cfg.serveDist
 startKuma(app);
 startEvents(app);
 startNotify(app);
+startGpuWatch(app);
+startTiles(app);
+startUpdateCheck();
+startSelfBackup(app);
 startHealth();
 startScheduler();
 
-const shutdown = async () => { await recordCleanStop(); await app.close(); closeDb(); process.exit(0); };
+const shutdown = async () => { await recordCleanStop(); await app.close(); await closeData(); closeDb(); process.exit(0); };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 

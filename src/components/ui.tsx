@@ -13,6 +13,8 @@ const P: Record<string, string> = {
   globe: 'M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z',
   chart: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   pulse: 'M3 12h4l3-8 4 16 3-8h4',
+  download: 'M12 3v12M7 11l5 5 5-5M5 21h14',
+  upload: 'M12 17V5M7 9l5-5 5 5M5 21h14',
   search: 'M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.3-4.3',
   refresh: 'M20 11a8 8 0 00-14.9-3M4 4v4h4M4 13a8 8 0 0014.9 3M20 20v-4h-4',
   sun: 'M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4',
@@ -22,6 +24,12 @@ const P: Record<string, string> = {
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5',
   alert: 'M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z',
   check: 'M5 13l4 4L19 7',
+  plus: 'M12 5v14M5 12h14',
+  edit: 'M4 20h4L19 9l-4-4L4 16z',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
+  star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
+  info: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v6M12 7.5h.01',
+  drag: 'M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01',
   x: 'M6 6l12 12M18 6L6 18',
   logout: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9',
   cpu: 'M9 9h6v6H9zM4 9H2M4 15H2M22 9h-2M22 15h-2M9 4V2M15 4V2M9 22v-2M15 22v-2M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z',
@@ -68,6 +76,9 @@ export function Badge({ tone = 'gray', dot, children, title }: { tone?: Tone; do
     </span>
   );
 }
+
+/** Marks something declared in homedash.yaml: it can only be changed there. */
+export const ManagedBadge = () => <Badge tone="gray" title="Declared in homedash.yaml (policy:). Change it there and run homedash-config apply.">In config</Badge>;
 
 export const Spinner = ({ size = 16 }: { size?: number }) => <span className="spinner" style={{ width: size, height: size }} aria-label="Loading" />;
 
@@ -145,6 +156,26 @@ export function EmptyState({ icon = 'inbox', title, hint, action }: { icon?: Ico
 }
 
 export function ErrorState({ error, onRetry }: { error: Error; onRetry?: () => void }) {
+  const code = (error as { code?: string }).code;
+  // An integration that was never switched on is not a failure: say so calmly and point at the fix.
+  if (code === 'NOT_CONFIGURED') {
+    return (
+      <div className="empty">
+        <div className="empty-ic"><Icon name="settings" size={22} /></div>
+        <strong>Not set up yet</strong>
+        <p className="muted small">{error.message}. Switch it on in <code>homedash.yaml</code>, then run <code>homedash-config apply --restart</code>.</p>
+      </div>
+    );
+  }
+  if (code === 'FORBIDDEN' || code === 'DENIED' || code === 'ROLE_DENIED') {
+    return (
+      <div className="empty">
+        <div className="empty-ic"><Icon name="lock" size={22} /></div>
+        <strong>You don't have access to this</strong>
+        <p className="muted small">{error.message}. Ask an administrator if you need it.</p>
+      </div>
+    );
+  }
   return (
     <div className="empty err">
       <div className="empty-ic"><Icon name="alert" size={22} /></div>
@@ -266,3 +297,7 @@ export function HeartbeatBar({ beats }: { beats: { time: string; status: string;
     </div>
   );
 }
+
+// Components shared by the ported pages live in ui-more.tsx.
+export { CodeBlock, CopyButton, DocRow, Sheet, Stat } from './ui-more';
+export type { SheetSection } from './ui-more';

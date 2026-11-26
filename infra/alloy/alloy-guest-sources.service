@@ -1,0 +1,7 @@
+[Unit]
+Description=Regenerate Alloy sources for running LXC guests
+After=pve-guests.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/alloy-guest-sources

@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { cfg } from './config.js';
+import { currentCluster, currentNode, hostPath } from './clusters.js';
 import { HttpError } from './errors.js';
 import { pve } from './proxmox.js';
 
-const node = () => `/nodes/${encodeURIComponent(cfg.pveNode)}`;
+const node = () => hostPath();
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 
 export const TIMEFRAMES = ['hour', 'day', 'week', 'month', 'year'] as const;
@@ -30,7 +31,7 @@ export const upidVmid = (upid: string) => {
   const id = upid.split(':')[6];
   return /^\d+$/.test(id) ? Number(id) : null;
 };
-const vmidAllowed = (vmid: number | null) => vmid === null || cfg.allowedVmids.size === 0 || cfg.allowedVmids.has(vmid);
+const vmidAllowed = (vmid: number | null) => vmid === null || currentCluster().allowedVmids.size === 0 || currentCluster().allowedVmids.has(vmid);
 
 export function mapTask(t: any) {
   return {
@@ -60,7 +61,7 @@ export function registerNode(app: FastifyInstance) {
       pve<any>('GET', `${node()}/dns`).catch(() => null),
     ]);
     return {
-      name: cfg.pveNode,
+      name: currentNode(),
       cpu: num(s.cpu), wait: num(s.wait),
       cpuModel: String(s.cpuinfo?.model ?? ''), cpus: num(s.cpuinfo?.cpus), cores: num(s.cpuinfo?.cores), sockets: num(s.cpuinfo?.sockets), mhz: num(s.cpuinfo?.mhz),
       loadavg: (s.loadavg ?? []).map(Number) as number[],

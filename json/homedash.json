@@ -1,7 +1,10 @@
 {
   "name": "homedash",
   "slug": "homedash",
-  "categories": [10, 1],
+  "categories": [
+    10,
+    1
+  ],
   "date_created": "2026-10-29",
   "type": "ct",
   "updateable": true,
@@ -11,16 +14,16 @@
   "website": "https://github.com/lokeshramchand-ctrl/homedash",
   "repository": "https://github.com/lokeshramchand-ctrl/homedash",
   "logo": "https://cdn.jsdelivr.net/gh/lokeshramchand-ctrl/homedash@main/public/icon.svg",
-  "description": "A single-user dashboard for a Proxmox homelab: guest control with scenes and schedules, a health score, backup and snapshot protection, storage fill forecasts, a network map and an nginx reverse-proxy manager. Embeds Grafana and exposes Prometheus metrics.",
+  "description": "A dashboard for a Proxmox homelab or small team: guest control with scenes and schedules, health score, backup and snapshot protection, capacity forecasts, network map and an nginx manager. Features such as Grafana, Loki logs, CrowdSec, a database manager, OIDC sign-in and two-step login switch on from one YAML file.",
   "install_methods": [
     {
       "type": "default",
       "script": "ct/homedash.sh",
-      "config_path": "/opt/homedash/server/.env",
+      "config_path": "/etc/homedash/homedash.yaml",
       "resources": {
         "cpu": 1,
         "ram": 1024,
-        "hdd": 4,
+        "hdd": 6,
         "os": "Debian",
         "version": "13"
       }
@@ -31,30 +34,113 @@
     "password": null
   },
   "app_vars": [
-    { "name": "var_homedash_port", "label": "Web port", "type": "number", "default": "3000" },
-    { "name": "var_homedash_admin_user", "label": "Admin username", "type": "text", "default": "admin" },
-    { "name": "var_homedash_admin_password", "label": "Admin password (min 12 characters, random if empty)", "type": "password", "secret": true },
-    { "name": "var_homedash_pve_url", "label": "Proxmox API URL", "type": "text", "required": true, "help": "For example https://192.168.1.10:8006" },
-    { "name": "var_homedash_pve_node", "label": "Proxmox node name", "type": "text", "help": "Defaults to the hostname of the Proxmox host running the script" },
-    { "name": "var_homedash_pve_token_id", "label": "Proxmox API token ID", "type": "text", "required": true, "help": "Format user@realm!tokenname, e.g. homedash@pve!ui" },
-    { "name": "var_homedash_pve_token_secret", "label": "Proxmox API token secret", "type": "password", "secret": true, "required": true },
-    { "name": "var_homedash_grafana_url", "label": "Grafana URL", "type": "text", "help": "Optional. Lets homedash browse and embed Grafana dashboards" },
-    { "name": "var_homedash_grafana_token", "label": "Grafana service account token", "type": "password", "secret": true },
-    { "name": "var_homedash_kuma_url", "label": "Uptime Kuma URL", "type": "text", "help": "Optional" },
-    { "name": "var_homedash_kuma_api_key", "label": "Uptime Kuma API key", "type": "password", "secret": true },
-    { "name": "var_homedash_metrics", "label": "Enable Prometheus /metrics for Grafana", "type": "boolean", "default": "yes" }
+    {
+      "name": "var_homedash_port",
+      "label": "Web port",
+      "type": "number",
+      "default": "3000"
+    },
+    {
+      "name": "var_homedash_admin_user",
+      "label": "Admin username",
+      "type": "text",
+      "default": "admin"
+    },
+    {
+      "name": "var_homedash_admin_password",
+      "label": "Admin password (min 12 characters, random if empty)",
+      "type": "password",
+      "secret": true
+    },
+    {
+      "name": "var_homedash_pve_url",
+      "label": "Proxmox API URL",
+      "type": "text",
+      "required": true,
+      "help": "For example https://192.168.1.10:8006"
+    },
+    {
+      "name": "var_homedash_pve_node",
+      "label": "Proxmox node name",
+      "type": "text",
+      "help": "Defaults to the hostname of the Proxmox host running the script"
+    },
+    {
+      "name": "var_homedash_pve_token_id",
+      "label": "Proxmox API token ID",
+      "type": "text",
+      "required": true,
+      "help": "Format user@realm!tokenname, e.g. homedash@pve!ui"
+    },
+    {
+      "name": "var_homedash_pve_token_secret",
+      "label": "Proxmox API token secret",
+      "type": "password",
+      "secret": true,
+      "required": true
+    },
+    {
+      "name": "var_homedash_grafana_url",
+      "label": "Grafana URL",
+      "type": "text",
+      "help": "Optional. Lets homedash browse and embed Grafana dashboards"
+    },
+    {
+      "name": "var_homedash_grafana_token",
+      "label": "Grafana service account token",
+      "type": "password",
+      "secret": true
+    },
+    {
+      "name": "var_homedash_kuma_url",
+      "label": "Uptime Kuma URL",
+      "type": "text",
+      "help": "Optional"
+    },
+    {
+      "name": "var_homedash_loki_url",
+      "label": "Loki URL",
+      "type": "text",
+      "help": "Optional. Turns on Logs > Analytics and Loki search"
+    },
+    {
+      "name": "var_homedash_kuma_api_key",
+      "label": "Uptime Kuma API key",
+      "type": "password",
+      "secret": true
+    },
+    {
+      "name": "var_homedash_metrics",
+      "label": "Enable Prometheus /metrics for Grafana",
+      "type": "boolean",
+      "default": "yes"
+    },
+    {
+      "name": "var_homedash_config_b64",
+      "label": "Full homedash.yaml (base64)",
+      "type": "text",
+      "help": "Optional. Replaces the questions above: var_homedash_config_b64=$(base64 -w0 homedash.yaml)"
+    }
   ],
   "notes": [
     {
-      "text": "The admin password is printed once at the end of the install. Reset it with: cd /opt/homedash/server && npm run create-user -- admin",
+      "text": "Everything is configured in /etc/homedash/homedash.yaml. Run `homedash-config validate` to see which features are on, then `homedash-config apply --restart`. All options: /opt/homedash/infra/homedash.example.yaml",
       "type": "info"
     },
     {
-      "text": "Create the Proxmox API token with the PVEAuditor and PVEVMUser roles. Settings live in /opt/homedash/server/.env; run systemctl restart homedash after editing.",
+      "text": "The admin password is printed once at the end of the install. Reset it with: cd /opt/homedash/server && npm run create-user -- admin admin",
       "type": "info"
     },
     {
-      "text": "Runs over plain HTTP with COOKIE_SECURE=false. Behind an HTTPS reverse proxy set COOKIE_SECURE=true and TRUST_PROXY=true.",
+      "text": "Create the Proxmox API token with tools/pve/create-token.sh (PVEAuditor and PVEVMUser roles).",
+      "type": "info"
+    },
+    {
+      "text": "Optional host-side add-ons (Alloy log shipping, CrowdSec snapshot, node exporter): run tools/pve/host-addons.sh <ctid> on the Proxmox host. Nothing is installed without confirmation.",
+      "type": "info"
+    },
+    {
+      "text": "Runs over plain HTTP with secure cookies off. Behind an HTTPS reverse proxy set server.https: true (the nginx.homedash block can render the proxy for you).",
       "type": "warning"
     }
   ]

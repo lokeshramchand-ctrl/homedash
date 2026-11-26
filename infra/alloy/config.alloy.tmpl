@@ -1,0 +1,146 @@
+// Grafana Alloy on the Proxmox host: ONE shipper for the whole lab. Rendered by homedash-config (addons.alloy).
+//   - host journal                       -> job="systemd-journal" host="{{addons.alloy.host_label}}"
+{{#if addons.alloy.nginx_logs}}
+//   - nginx JSON access + error logs     -> job="nginx-access" / "nginx-error"
+{{/if}}
+{{#if addons.alloy.app_logs}}
+//   - application log files              -> job="app"
+{{/if}}
+{{#if addons.alloy.guests}}
+//   - every LXC guest's journal          -> guests.alloy (generated every minute by alloy-guest-sources)
+{{/if}}
+// Loki is the only place logs are stored; homedash and Grafana only query it.
+// Labels stay LOW cardinality on purpose (host, job, unit, level, vhost, status).
+
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+loki.write "lab" {
+  endpoint {
+    url                = "{{loki_push_url}}"
+    batch_wait         = "2s"
+    max_backoff_period = "5m"       // Loki down => Alloy buffers and retries, nothing is lost
+  }
+  external_labels = { env = "{{addons.alloy.environment}}" }
+}
+
+// ---------------------------------------------------------------- host journal
+loki.relabel "journal" {
+  forward_to = []
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+}
+
+loki.source.journal "host" {
+  max_age        = "12h"
+  labels         = { job = "systemd-journal", host = "{{addons.alloy.host_label}}", kind = "host" }
+  relabel_rules  = loki.relabel.journal.rules
+  forward_to     = [loki.write.lab.receiver]
+}
+{{#if addons.alloy.nginx_logs}}
+
+// ---------------------------------------------------------------- nginx
+local.file_match "nginx_access" {
+  path_targets = [{ __path__ = "/var/log/nginx/access.json.log", job = "nginx-access", host = "{{addons.alloy.host_label}}", kind = "host" }]
+}
+
+loki.source.file "nginx_access" {
+  targets    = local.file_match.nginx_access.targets
+  forward_to = [loki.process.nginx_access.receiver]
+}
+
+loki.process "nginx_access" {
+  forward_to = [loki.write.lab.receiver]
+
+  stage.json {
+    expressions = { vhost = "vhost", method = "method", status = "status", ts = "ts", remote = "remote", rt = "rt", urt = "urt", uri = "uri", ua = "ua" }
+  }
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339"
+  }
+  stage.labels {
+    values = { vhost = "", method = "", status = "" }
+  }
+  stage.structured_metadata {
+    values = { remote = "", rt = "", urt = "", ua = "" }
+  }
+}
+
+local.file_match "nginx_error" {
+  path_targets = [{ __path__ = "/var/log/nginx/error.log", job = "nginx-error", host = "{{addons.alloy.host_label}}", kind = "host" }]
+}
+
+loki.source.file "nginx_error" {
+  targets    = local.file_match.nginx_error.targets
+  forward_to = [loki.process.nginx_error.receiver]
+}
+
+loki.process "nginx_error" {
+  forward_to = [loki.write.lab.receiver]
+  stage.regex {
+    expression = "^(?P<ts>\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[(?P<level>\\w+)\\]"
+  }
+  stage.timestamp {
+    source   = "ts"
+    format   = "2006/01/02 15:04:05"
+    location = "{{addons.alloy.timezone}}"
+  }
+  stage.drop {
+    older_than          = "24h"           // first start must not replay old history as "now"
+    drop_counter_reason = "too_old"
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+}
+{{/if}}
+{{#if addons.alloy.app_logs}}
+
+// ---------------------------------------------------------------- application log files (one line per entry)
+local.file_match "apps" {
+  path_targets = [
+{{#each addons.alloy.app_logs}}
+    { __path__ = "{{.path}}", job = "app", app = "{{.name}}", host = "{{addons.alloy.host_label}}", kind = "host" },
+{{/each}}
+  ]
+}
+
+loki.source.file "apps" {
+  targets    = local.file_match.apps.targets
+  forward_to = [loki.process.apps.receiver]
+}
+
+loki.process "apps" {
+  forward_to = [loki.write.lab.receiver]
+  stage.drop {
+    older_than          = "24h"
+    drop_counter_reason = "too_old"
+  }
+  // JSON logs with pino-style numeric levels: 50/60 error, 40 warn, 30 info. Plain-text logs get no level label.
+  stage.match {
+    selector = "{app=~\".+\"} |~ \"\\\"level\\\":(50|60)\""
+    stage.static_labels { values = { level = "error" } }
+  }
+  stage.match {
+    selector = "{app=~\".+\"} |~ \"\\\"level\\\":40\""
+    stage.static_labels { values = { level = "warning" } }
+  }
+  stage.match {
+    selector = "{app=~\".+\"} |~ \"\\\"level\\\":30\""
+    stage.static_labels { values = { level = "info" } }
+  }
+  stage.match {
+    selector = "{filename=~\".*/error.log\"}"
+    stage.static_labels { values = { level = "error" } }
+  }
+}
+{{/if}}

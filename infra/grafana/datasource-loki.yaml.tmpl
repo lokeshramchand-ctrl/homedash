@@ -1,0 +1,12 @@
+# Grafana provisioning: Loki datasource (rendered by homedash-config). Install in /etc/grafana/provisioning/datasources/
+apiVersion: 1
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: {{env.LOKI_URL}}
+    editable: false
+    jsonData:
+      maxLines: 1000
+      timeout: 60

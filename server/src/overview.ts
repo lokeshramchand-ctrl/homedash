@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { cfg } from './config.js';
+import { currentCluster, hostPath, multiCluster } from './clusters.js';
 import { listGuests } from './guests.js';
 import { kumaCounts } from './kuma.js';
 import { listSites } from './nginx.js';
@@ -11,13 +11,14 @@ export function registerOverview(app: FastifyInstance) {
   // Each source is optional: a missing integration yields zeros rather than failing the whole page.
   app.get('/api/overview', async () => {
     const [guests, sites, kuma, node] = (await Promise.allSettled([
-      listGuests(), listSites(), kumaCounts(), pve<any>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/status`),
+      listGuests(), listSites(), kumaCounts(), pve<any>('GET', `${hostPath()}/status`),
     ])) as [PromiseSettledResult<Awaited<ReturnType<typeof listGuests>>>, PromiseSettledResult<unknown[]>, PromiseSettledResult<{ up: number; down: number; pending: number }>, PromiseSettledResult<any>];
 
     const g = ok(guests) ?? [];
     const running = g.filter((x) => x.status === 'running').length;
     const n = ok(node);
     return {
+      cluster: { id: currentCluster().id, name: currentCluster().name, multi: multiCluster() },
       guests: { total: g.length, running, stopped: g.length - running },
       nginx: { sites: ok(sites)?.length ?? 0 },
       kuma: ok(kuma) ?? { up: 0, down: 0, pending: 0 },

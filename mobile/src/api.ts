@@ -10,9 +10,15 @@ export class ApiError extends Error {
 }
 
 let baseUrl = '';
+// An API token (Access page > API tokens) replaces the cookie session: it works for accounts that use two-step or single sign-on.
+let token = '';
 let onExpired: () => void = () => {};
 
 export const setBaseUrl = (u: string) => { baseUrl = u; };
+export const setToken = (t: string) => { token = t.trim(); };
+export const usingToken = () => token !== '';
+/** The shape the server issues: hd_<12 hex>_<40+ url-safe characters>. */
+export const looksLikeToken = (t: string) => /^hd_[0-9a-f]{12}_[A-Za-z0-9_-]{40,}$/.test(t.trim());
 export const setExpiredHandler = (f: () => void) => { onExpired = f; };
 
 /** Accepts "dash.home.lan", "http://192.168.1.5:3000/" etc. and returns a clean origin. */
@@ -30,7 +36,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     res = await fetch(`${baseUrl}/api${path}`, {
       method,
       credentials: 'include',
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers: { 'X-Requested-With': 'homedash', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -51,7 +57,8 @@ const post = <T,>(p: string, b?: unknown) => req<T>('POST', p, b ?? {});
 
 export const api = {
   login: (username: string, password: string) => post<{ username: string }>('/auth/login', { username, password }),
-  logout: () => post<unknown>('/auth/logout'),
+  // A token session has nothing to end on the server (it refuses sign-out for tokens): revoke the token on the Access page.
+  logout: () => (token ? Promise.resolve({}) : post<unknown>('/auth/logout')),
   me: () => get<{ username: string }>('/auth/me'),
   overview: () => get<Overview>('/overview'),
   guests: () => get<Guest[]>('/guests'),
