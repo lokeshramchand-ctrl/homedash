@@ -108,6 +108,16 @@ CREATE TABLE IF NOT EXISTS user_prefs (user TEXT NOT NULL, key TEXT NOT NULL, va
 CREATE TABLE IF NOT EXISTS ui_tiles (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, config TEXT NOT NULL, secret TEXT NOT NULL, created_at INTEGER NOT NULL, created_by TEXT
 );
+CREATE TABLE IF NOT EXISTS monitoring_sources (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, config TEXT NOT NULL, secret TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1, interval_s INTEGER NOT NULL DEFAULT 60, ttl_hours INTEGER NOT NULL DEFAULT 168,
+  created_at INTEGER NOT NULL, created_by TEXT
+);
+CREATE TABLE IF NOT EXISTS monitoring_hook_state (
+  source_id TEXT NOT NULL, key TEXT NOT NULL, type TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL, level TEXT NOT NULL,
+  detail TEXT, url TEXT, since INTEGER NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY (source_id, key)
+);
+CREATE INDEX IF NOT EXISTS hook_state_seen ON monitoring_hook_state (last_seen);
 CREATE TABLE IF NOT EXISTS silences (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, reason TEXT, starts_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, categories TEXT, contains TEXT,
   days TEXT, tod_start TEXT, tod_minutes INTEGER, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -164,6 +174,13 @@ function purgeExpired() {
   for (const t of ['sessions', 'login_attempts', 'kuma_samples', 'system_events', 'oidc_states', 'datasource_audit', 'gpu_samples', 'webauthn_challenges']) {
     d.prepare(`DELETE FROM ${t} WHERE expires_at < ?`).run(now);
   }
+  purgeHookState(now);
+}
+
+/** Pushed monitoring state that nobody has refreshed within its source's TTL, and state whose source no longer exists. */
+export function purgeHookState(now = Date.now()) {
+  d.prepare('DELETE FROM monitoring_hook_state WHERE source_id NOT IN (SELECT id FROM monitoring_sources)').run();
+  d.prepare('DELETE FROM monitoring_hook_state WHERE last_seen < ? - (SELECT ttl_hours FROM monitoring_sources s WHERE s.id = source_id) * 3600000').run(now);
 }
 
 /** Whether the database answers; used by /metrics and the health check. */
