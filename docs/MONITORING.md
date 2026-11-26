@@ -86,3 +86,64 @@ The webhook is the only part of homedash outside the login. It records state and
 ## Permissions
 
 Everyone signed in can read the list. Only administrators can connect, edit, test or remove sources, or issue a new webhook secret. Secrets are stored sealed, are never shown again, and are never written to the log or the audit trail.
+
+## Connect anything
+
+If a tool is not in the list, it can still be connected. Pick the line that matches what it has:
+
+| The tool has | Use | What homedash does |
+|---|---|---|
+| A page or API that answers with JSON | **Custom HTTP source**, read as a list of checks or of alerts | Reads it on an interval |
+| A `/metrics` page (Prometheus format) | **Custom HTTP source**, read as a Prometheus page | Turns series into up, warning and down |
+| A website, a port or a certificate and nothing else | **Service checks** | Looks at the address itself |
+| The ability to send a web request when something happens | **Webhook**, with a custom mapping for unusual JSON | Listens |
+
+### Ready-made tools
+
+These fill in the custom HTTP source for you; you give an address and a key. Each was checked against the tool's own documentation (`docs/research/monitoring-templates-formats.md`), and the form says which documentation. None was run against a live installation.
+
+| Tool | What it shows | Notes |
+|---|---|---|
+| Healthchecks.io | Checks: up, late (warning), down; paused ones are ignored | A read-only API key is enough |
+| Zabbix | Open problems with severity and start time | Zabbix 6.4 or newer (API token in a header) |
+| Uptime Robot | Monitors: up, seems down (warning), down | API v2 only; v3 is not covered |
+| Netdata | Raised alarms | Uses the classic alarms endpoint, which Netdata marks deprecated |
+| Checkmk | Services that are not OK | Checkmk 2.3.0p31, 2.4 and 2.5; the endpoint is removed in 3.0 |
+
+### Custom HTTP source
+
+You describe one request and how to read the answer.
+
+- **Request:** address, GET or POST, and one way to sign in: nothing, a bearer token, user name and password, a key in a header, or a key in the address. A POST can have a body. In the address, headers and body, `{{secret}}` is replaced by the saved key; nothing else is substituted and nothing is evaluated. Header names are limited to letters, digits and dashes, line breaks are refused, and `Host`, `Content-Length`, `Cookie` and similar framing headers cannot be set. Redirects are not followed.
+- **Self-signed HTTPS:** under Advanced, "Accept a self-signed certificate" applies to that source only.
+- **A JSON list as checks:** where the list is (`data.items`, or `$`), which fields hold the name and the status, and what the status words mean (`ok=up, fail=down, warn=pending`; common words are understood). The list may also be an object keyed by name; its values are the items.
+- **A JSON list as alerts:** each item is a problem. Give the name, and optionally a message, a severity with a map (`5=error, 3=warn`), a start time (seconds, milliseconds or an ISO date), a unique id, and "problem when status is" if the list also contains healthy items.
+- **A Prometheus page:** the metric name, an optional label filter (`job=node`), which label names each check, and two comparisons: "up when" (default `== 1`) and "warning when" (checked if "up" does not hold). For a disk: up when `< 80`, warning when `< 95`, down otherwise.
+- **Just answers:** up if the status code is good (default 200 to 399) and, optionally, the page contains some text. An unreachable server is a down check, not an error.
+
+The Test button says what was read (`Read 2 items: nas:9100 is up, pi:9100 is down`) or why not, so a wrong path or metric name shows before anything is saved.
+
+### Recipes for tools without a template
+
+Fill these into the custom HTTP source and use Test. The field names come from each tool's documentation, but none of these was checked against a running installation.
+
+- **Gatus:** `GET <address>/api/v1/endpoints/statuses?pageSize=1`, read as checks. List `$`, name `key`, status `results[0].success`, values `true=up, false=down`. The Gatus documentation does not say whether the newest result comes first; if Test shows stale states, this recipe does not fit your version.
+- **Glances (API 4):** `GET <address>/api/4/alert`, read as alerts. List `$`, name `desc`, severity `state` with `critical=error, warning=warn`, start time `begin`, status `end` with "problem when" `-1` (an alert that has not ended). The documentation shows only an empty sample.
+- **Any exporter with a `/metrics` page:** read as a Prometheus page, metric `up` (or the one you care about).
+- **Beszel:** it needs a login token that expires, which a single saved request cannot refresh. Not covered yet.
+
+### Webhook with a custom mapping
+
+If a tool sends JSON that is not Alertmanager, Grafana or the plain shape, open **Advanced** when creating the webhook and describe it: the path to the list (or `$` for the body itself), the name, the status and what its words mean, and whether each item is a check or a problem. A payload that does not fit the mapping gets a plain `400` explaining what could not be read.
+
+### Service checks
+
+One line per check, `name | type | address`:
+
+```
+NAS         | tcp  | 192.168.1.5:445
+Wiki        | http | http://wiki.lan
+Certificate | tls  | wiki.lan
+```
+
+`http` is up for any status below 400; `tcp` is up when the port accepts a connection; `tls` reads the certificate and warns 14 days before it expires (an untrusted or self-signed certificate is still read; expiry is the question). Cloud-metadata and link-local addresses are refused; ordinary LAN addresses are the point and are allowed. Up to 50 lines per source.

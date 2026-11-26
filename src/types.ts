@@ -19,7 +19,11 @@ export interface MonitoringCheck { key: string; source: string; name: string; st
 export interface MonitoringAlert { key: string; source: string; name: string; level: 'info' | 'warn' | 'error'; state: 'firing' | 'pending'; since: number | null; summary: string; instances: number; url: string | null }
 export interface UsageItem { item: string; score: number }
 
-export interface SourceField { name: string; label: string; type: 'url' | 'text' | 'secret' | 'number'; required?: boolean; hint?: string }
+export interface SourceField {
+  name: string; label: string; type: 'url' | 'text' | 'secret' | 'number' | 'bool' | 'select' | 'textarea'; required?: boolean; hint?: string;
+  options?: { value: string; label: string }[]; showWhen?: { field: string; in: string[] }; advanced?: boolean;
+}
+export interface SourceTemplate { id: string; label: string; summary: string; hint: string; verified: string; ask: SourceField[]; fixed: Record<string, string>; urlSuffix?: string; fixedUrl?: string }
 export interface SourceKind { kind: string; label: string; summary: string; hint: string; mode: 'pull' | 'push'; fields: SourceField[] }
 export interface MonSource {
   id: string; kind: string; name: string; config: Record<string, string>; secretsSet: string[]; enabled: boolean; intervalS: number; ttlHours: number;

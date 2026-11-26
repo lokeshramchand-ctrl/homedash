@@ -147,7 +147,7 @@ export default function Monitoring({ role = 'viewer' }: { role?: string }) {
         </Async>
       </Card>
 
-      {form && admin.data && <SourceForm kinds={admin.data.c.kinds} source={form.source} onClose={() => setForm(null)} onSaved={refresh} />}
+      {form && admin.data && <SourceForm kinds={admin.data.c.kinds} templates={admin.data.c.templates} source={form.source} onClose={() => setForm(null)} onSaved={refresh} />}
       {rotated && (
         <Modal title={`New secret for ${rotated.name}`} wide onClose={() => setRotated(null)} footer={<button className="btn btn-primary" onClick={() => setRotated(null)}>Done</button>}>
           <HookDetails path={rotated.path} secret={rotated.secret} name={rotated.name} />

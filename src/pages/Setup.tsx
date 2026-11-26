@@ -90,7 +90,7 @@ export default function Setup() {
           );
         }}
       </Async>
-      {connect && cat.data && <SourceForm kinds={cat.data.kinds} initialKind={connect} onClose={() => setConnect(null)} onSaved={() => q.reload()} />}
+      {connect && cat.data && <SourceForm kinds={cat.data.kinds} templates={cat.data.templates} initialKind={connect} onClose={() => setConnect(null)} onSaved={() => q.reload()} />}
     </>
   );
 }

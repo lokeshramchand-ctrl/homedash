@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaAlertsInfo, GrafanaPanel, MonitoringSnapshot, MonSources, NtfyInbox, SourceKind, UsageItem, KumaIncident, KumaMonitor,
+  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaAlertsInfo, GrafanaPanel, MonitoringSnapshot, MonSources, NtfyInbox, SourceKind, SourceTemplate, UsageItem, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -214,7 +214,7 @@ export const api = {
   usageCount: (item: string) => post<{ counted: boolean }>('/usage', { item }).catch(() => ({ counted: false })),
   usageReset: () => del<{ removed: number }>('/usage'),
   monitoring: () => get<MonitoringSnapshot>('/monitoring'),
-  monitoringCatalog: () => get<{ kinds: SourceKind[]; canEdit: boolean }>('/monitoring/catalog'),
+  monitoringCatalog: () => get<{ kinds: SourceKind[]; templates: SourceTemplate[]; canEdit: boolean }>('/monitoring/catalog'),
   monitoringSources: () => get<MonSources>('/monitoring/sources'),
   testMonitoringSource: (b: unknown) => post<{ ok: boolean; message: string }>('/monitoring/sources/test', b),
   retestMonitoringSource: (id: string) => post<{ ok: boolean; message: string }>(`/monitoring/sources/${encodeURIComponent(id)}/test`, {}),
