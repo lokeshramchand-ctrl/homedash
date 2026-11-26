@@ -151,6 +151,26 @@ export function EmptyState({ icon = 'inbox', title, hint, action }: { icon?: Ico
 }
 
 export function ErrorState({ error, onRetry }: { error: Error; onRetry?: () => void }) {
+  const code = (error as { code?: string }).code;
+  // An integration that was never switched on is not a failure: say so calmly and point at the fix.
+  if (code === 'NOT_CONFIGURED') {
+    return (
+      <div className="empty">
+        <div className="empty-ic"><Icon name="settings" size={22} /></div>
+        <strong>Not set up yet</strong>
+        <p className="muted small">{error.message}. Switch it on in <code>homedash.yaml</code>, then run <code>homedash-config apply --restart</code>.</p>
+      </div>
+    );
+  }
+  if (code === 'FORBIDDEN' || code === 'DENIED' || code === 'ROLE_DENIED') {
+    return (
+      <div className="empty">
+        <div className="empty-ic"><Icon name="lock" size={22} /></div>
+        <strong>You don't have access to this</strong>
+        <p className="muted small">{error.message}. Ask an administrator if you need it.</p>
+      </div>
+    );
+  }
   return (
     <div className="empty err">
       <div className="empty-ic"><Icon name="alert" size={22} /></div>

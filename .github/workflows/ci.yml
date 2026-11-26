@@ -25,6 +25,29 @@ jobs:
           node-version: 22
       - run: cd server && npm ci && npm test
 
+  browser:
+    # Opens the built UI in a real browser against the backend (mock Proxmox) and visits every page.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+      - run: cd server && npm ci && npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Start backend
+        env:
+          E2E_PASS: ci-test-password-1234
+        run: |
+          nohup bash e2e/start-backend.sh > /tmp/backend.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3911/api/features >/dev/null 2>&1 || curl -s http://127.0.0.1:3911/ >/dev/null && break; sleep 1; done
+      - run: npx playwright test
+        env:
+          E2E_PASS: ci-test-password-1234
+      - if: failure()
+        run: cat /tmp/backend.log
+
   config-example:
     # The shipped example must stay valid: every key it documents is checked by the same code the installer runs.
     runs-on: ubuntu-latest

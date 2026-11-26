@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared helpers for the Proxmox host scripts in tools/pve (sourced, not run).
 # Provides: logging to /var/log, pre-flight checks, confirmation prompts (--yes aware), backups, cleanup trap.
 
@@ -42,7 +43,8 @@ confirm() { # confirm "question"
 # backup_file <path>: copy an existing file to $BACKUP_DIR/<timestamp>/ before it is replaced
 backup_file() {
   [[ -e "$1" ]] || return 0
-  local dest="$BACKUP_DIR/$(date +%Y%m%d-%H%M%S)$(dirname "$1")"
+  local dest
+  dest="$BACKUP_DIR/$(date +%Y%m%d-%H%M%S)$(dirname "$1")"
   mkdir -p "$dest" && cp -a "$1" "$dest/" && log "BACKUP $1 -> $dest"
 }
 

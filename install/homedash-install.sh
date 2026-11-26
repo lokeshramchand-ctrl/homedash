@@ -92,11 +92,11 @@ chmod 600 /etc/homedash/homedash.yaml
 var_homedash_admin_password="${var_homedash_admin_password:-$(random_password 16)}"
 
 msg_info "Building homedash"
-cd /opt/homedash
+cd /opt/homedash || exit
 $STD npm ci
 $STD npm run build
 rm -rf node_modules
-cd server
+cd server || exit
 $STD npm ci
 $STD npm run build
 $STD npm prune --omit=dev
@@ -110,7 +110,7 @@ EOF
 chmod 755 /usr/local/bin/homedash-config
 mkdir -p /opt/homedash/data
 $STD homedash-config apply
-cd /opt/homedash/server
+cd /opt/homedash/server || exit
 NEW_PASSWORD="${var_homedash_admin_password}" $STD node --disable-warning=ExperimentalWarning --env-file=.env build/create-user.js "${var_homedash_admin_user}" admin
 msg_ok "Configured homedash"
 

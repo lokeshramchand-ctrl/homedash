@@ -71,11 +71,11 @@ EOF
     msg_ok "Refreshed homedash-config"
 
     msg_info "Building homedash"
-    cd /opt/homedash
+    cd /opt/homedash || exit
     $STD npm ci
     $STD npm run build
     rm -rf node_modules
-    cd server
+    cd server || exit
     $STD npm ci
     $STD npm run build
     $STD npm prune --omit=dev

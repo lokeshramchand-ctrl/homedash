@@ -292,29 +292,28 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
                 <Icon name="info" size={16} /><span><b>homedash {version.data.latest} is available</b> (you run {version.data.current}). Open the container console in Proxmox and run <code>update</code>.{version.data.url && <> <a className="link" href={version.data.url} target="_blank" rel="noopener noreferrer">What changed</a></>}</span>
               </div>
             )}
-            {page === 'overview' && <Overview />}
-            {page === 'node' && <Node tab={parts[1]} />}
-            {page === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}
-            {page === 'tasks' && <Tasks />}
-            {page === 'cluster' && <Nodes />}
-            {page === 'gpu' && <Gpu />}
-            {page === 'diagnostics' && <Diagnostics />}
-            {page === 'scenes' && <Scenes />}
-            {page === 'health' && <Health />}
-            {page === 'protection' && <Protection />}
-            {page === 'capacity' && <Capacity />}
-            {page === 'netmap' && <Netmap />}
-            {page === 'nginx' && <Nginx />}
-            {page === 'grafana' && <Grafana uid={parts[1]} />}
-            {page === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
-            {page === 'logs' && <Logs />}
-            {page === 'notifications' && <Notifications role={role} />}
-            {page === 'access' && <Access role={role} user={user} />}
-            {page === 'crowdsec' && <Crowdsec />}
-            {page === 'data' && <Data parts={parts.slice(1)} />}
-            {page === 'llama' && <Llama />}
-            {page === 'tiles' && <Tiles role={role} />}
-            {!NAV.some((n) => n.id === page) && <Overview />}
+            {current.id === 'overview' && <Overview />}
+            {current.id === 'node' && <Node tab={parts[1]} />}
+            {current.id === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}
+            {current.id === 'tasks' && <Tasks />}
+            {current.id === 'cluster' && <Nodes />}
+            {current.id === 'gpu' && <Gpu />}
+            {current.id === 'diagnostics' && <Diagnostics />}
+            {current.id === 'scenes' && <Scenes />}
+            {current.id === 'health' && <Health />}
+            {current.id === 'protection' && <Protection />}
+            {current.id === 'capacity' && <Capacity />}
+            {current.id === 'netmap' && <Netmap />}
+            {current.id === 'nginx' && <Nginx />}
+            {current.id === 'grafana' && <Grafana uid={parts[1]} />}
+            {current.id === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
+            {current.id === 'logs' && <Logs />}
+            {current.id === 'notifications' && <Notifications role={role} />}
+            {current.id === 'access' && <Access role={role} user={user} />}
+            {current.id === 'crowdsec' && <Crowdsec />}
+            {current.id === 'data' && <Data parts={parts.slice(1)} />}
+            {current.id === 'llama' && <Llama />}
+            {current.id === 'tiles' && <Tiles role={role} />}
           </main>
         </div>
       </div>

@@ -24,7 +24,7 @@ export function features() {
     approvals: cfg.access.approvals.actions.length > 0,
     nginxManage: cfg.nginxManage,
     metrics: !!cfg.metricsToken,
-    tiles: cfg.tiles.length > 0,
+    tiles: true, // always on: the Services page is where a first service is added from the UI
     auditExport: !!(cfg.auditExport.syslog || cfg.auditExport.webhookUrl),
   };
 }

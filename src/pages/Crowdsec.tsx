@@ -41,10 +41,11 @@ function problemsOf(c: CsOverview): string[] {
 export default function Crowdsec({ tab: initial }: { tab?: string }) {
   const [tab, setTab] = useState<Tab>((TABS as string[]).includes(initial ?? '') ? (initial as Tab) : 'overview');
   const q = useQuery(api.crowdsec, [], 10_000);
-  const bad = q.data ? problemsOf(q.data).length : 0;
+  const bad = q.data?.configured ? problemsOf(q.data).length : 0;
   return (
     <>
       <PageHeader eyebrow="Network / Security" title="CrowdSec" sub="Spots attackers in your logs and blocks them at the firewall and on the Proxmox host." />
+      {q.data && !q.data.configured ? <EmptyState icon="lock" title="CrowdSec is not set up" hint="Switch it on in homedash.yaml (crowdsec.snapshot plus addons.crowdsec), run homedash-config apply --restart, and this page fills in." /> : <>
       <Chips value={tab} onChange={(t) => { setTab(t); history.replaceState(null, '', `#/crowdsec/${t}`); }} options={[
         { id: 'overview', label: 'Overview', count: bad || undefined }, { id: 'bans', label: 'Blocked', count: q.data?.decisions.localCount }, { id: 'detections', label: 'Detections' }, { id: 'engines', label: 'Engines' },
       ]} />
@@ -52,6 +53,7 @@ export default function Crowdsec({ tab: initial }: { tab?: string }) {
       {tab === 'bans' && <Bans q={q} />}
       {tab === 'detections' && <Detections q={q} />}
       {tab === 'engines' && <Engines q={q} />}
+      </>}
     </>
   );
 }
