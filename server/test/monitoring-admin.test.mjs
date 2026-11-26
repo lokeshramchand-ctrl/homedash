@@ -32,6 +32,10 @@ before(async () => {
   // A mock Prometheus: basic auth, one firing rule.
   prom = createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
+    if (req.url === '/api/v3/checks/') {
+      if (req.headers['x-api-key'] !== 'hc-key-123') { res.statusCode = 401; return res.end('{}'); }
+      return res.end(JSON.stringify({ checks: [{ name: 'Nightly backup', status: 'down' }, { name: 'Site', status: 'up' }] }));
+    }
     if (req.url.startsWith('/api/v1/rules')) {
       if (req.headers.authorization !== `Basic ${Buffer.from(`ops:${PROM_PASS}`).toString('base64')}`) { res.statusCode = 401; return res.end('{}'); }
       return res.end(JSON.stringify({ status: 'success', data: { groups: [{ name: 'g', file: 'f', rules: [{ type: 'alerting', name: 'DiskFull', labels: { severity: 'critical' }, annotations: { summary: 'root 93%' }, alerts: [{ state: 'firing', activeAt: '2026-01-01T00:00:00Z', labels: {}, annotations: {} }] }] }] } }));
@@ -126,6 +130,42 @@ test('force saves a source that cannot be reached yet, and it shows as unreachab
   const m = await until(async () => { const x = (await admin.call('GET', '/api/monitoring')).body; const s = x.sources.find((y) => y.id === r.body.id); return s && !s.ok ? s : null; });
   assert.ok(m && /Cannot reach/.test(m.error));
   assert.equal((await admin.call('DELETE', `/api/monitoring/sources/${r.body.id}`)).status, 200);
+});
+
+test('a template source keeps the address exactly (trailing slash included), applies what the template fixes, and reads the tool', async () => {
+  const base = `http://127.0.0.1:${prom.address().port}`;
+  const bad = await admin.call('POST', '/api/monitoring/sources', { kind: 'http', template: 'healthchecks', name: 'Cron jobs', url: base, secret: 'wrong' });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.code, 'TEST_FAILED');
+  assert.ok(!bad.text.includes('wrong'));
+  const r = await admin.call('POST', '/api/monitoring/sources', { kind: 'http', template: 'healthchecks', name: 'Cron jobs', url: base, secret: 'hc-key-123', parse: 'status', auth: 'none' });
+  assert.equal(r.status, 201, r.text);
+  assert.match(r.body.test.message, /Read 2 items: Nightly backup is down, Site is up/);
+  const s = (await admin.call('GET', '/api/monitoring/sources')).body.sources.find((x) => x.id === r.body.id);
+  assert.equal(s.config.url, `${base}/api/v3/checks/`);
+  assert.deepEqual([s.config.template, s.config.parse, s.config.auth, s.config.header_name], ['healthchecks', 'json_checks', 'header', 'X-Api-Key']);
+  assert.ok(!(await admin.call('GET', '/api/monitoring/sources')).text.includes('hc-key-123'));
+  const m = await until(async () => { const x = (await admin.call('GET', '/api/monitoring')).body; return x.checks.some((c) => c.name === 'Nightly backup' && c.status === 'down') ? x : null; });
+  assert.ok(m, 'the down check reaches the merged list');
+  // Editing hands back the full address; it must not get the suffix a second time, and the key stays when left blank.
+  assert.equal((await admin.call('PUT', `/api/monitoring/sources/${r.body.id}`, { kind: 'http', template: 'healthchecks', name: 'Cron jobs', url: s.config.url, secret: '' })).status, 200);
+  assert.equal((await admin.call('GET', '/api/monitoring/sources')).body.sources.find((x) => x.id === r.body.id).config.url, `${base}/api/v3/checks/`);
+  assert.equal((await admin.call('DELETE', `/api/monitoring/sources/${r.body.id}`)).status, 200);
+});
+
+test('unknown templates and templates on the wrong kind are refused; custom sources validate their request before saving', async () => {
+  assert.equal((await admin.call('POST', '/api/monitoring/sources', { kind: 'http', template: 'nope', url: 'http://x.lan' })).status, 400);
+  assert.equal((await admin.call('POST', '/api/monitoring/sources', { kind: 'prometheus', template: 'zabbix', url: 'http://x.lan' })).status, 400);
+  const base = { kind: 'http', name: 'Custom', url: `http://127.0.0.1:${prom.address().port}/api/v3/checks/`, parse: 'status', force: true };
+  for (const [patch, re] of [[{ extra_headers: 'Host: evil' }, /cannot be set/], [{ extra_headers: 'X-A: 1\nX-A: 2' }, /set twice/], [{ method: 'DELETE' }, /not one of the choices/], [{ auth: 'bearer' }, /needs the key or password/], [{ parse: 'prometheus' }, /Metric name is required/], [{ parse: 'json_checks', items_path: 'checks', name_path: 'name' }, /Status \(inside each item\) is required/]]) {
+    const r = await admin.call('POST', '/api/monitoring/sources', { ...base, ...patch });
+    assert.equal(r.status, 400, JSON.stringify(patch));
+    assert.match(r.body.error, re, JSON.stringify(patch));
+  }
+  const probe = await admin.call('POST', '/api/monitoring/sources', { kind: 'probe', name: 'bad probe', targets: 'not a valid line', force: true });
+  assert.equal(probe.status, 400);
+  assert.match(probe.body.error, /should look like/);
+  assert.equal((await admin.call('POST', '/api/monitoring/sources', { kind: 'http', name: 'Meta', url: 'http://169.254.169.254/latest', parse: 'status', force: true })).status, 403, 'metadata addresses stay refused for custom sources');
 });
 
 test('a webhook source: the secret is shown once, never listed, and rotating invalidates the old one', async () => {

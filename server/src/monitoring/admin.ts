@@ -61,7 +61,8 @@ export async function buildInput(kind: string, rawBody: Record<string, unknown>,
     }
     // A text area keeps its line breaks; everything else is a single trimmed line.
     const raw = f.type === 'textarea' ? String(body[f.name] ?? '').replace(/\r\n/g, '\n').trim().slice(0, 4000) : str(body[f.name], 300);
-    const v = f.type === 'url' ? trimUrl(raw) : raw;
+    // A custom source keeps its address exactly as given: some APIs need the trailing slash (Healthchecks.io: /api/v3/checks/).
+    const v = f.type === 'url' && kind !== 'http' ? trimUrl(raw) : raw;
     if (f.required && !v) throw bad(`${f.label} is required.`);
     if (f.type === 'url' && v) {
       // {{secret}} in a custom address is checked after it is filled in, below; here the shape and the destination are.
