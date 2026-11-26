@@ -16,9 +16,11 @@ export async function watchMonitoring(engine: Engine = monitoringEngine, raises:
   syncProblems('mon', 'monitor', problemsFrom(engine.merged(), raises, (id) => engine.failures(id)), (level, text) => persistEvent(level, 'monitor', text));
 }
 
-const POLL_MS = 10_000; // Kuma reads a local snapshot and Grafana has its own 30 s cache, so this is cheap
+// Kuma reads a local snapshot, Grafana has its own 30 s cache and pushed sources read the database, so 10 s is cheap.
+// MONITORING_POLL_MS exists for tests; sources still keep their own, longer, interval.
+const POLL_MS = Math.max(1000, Number(process.env.MONITORING_POLL_MS) || 10_000);
 export function startMonitoring(app: FastifyInstance) {
   const run = () => watchMonitoring().catch((e) => app.log.warn({ err: (e as Error).message }, 'monitoring watch failed'));
-  setTimeout(run, 5_000).unref();
+  setTimeout(run, Math.min(5_000, POLL_MS)).unref();
   setInterval(run, POLL_MS).unref();
 }

@@ -25,6 +25,7 @@ import { HttpError } from './errors.js';
 import { registerGrafana } from './grafana.js';
 import { registerGrafanaAlerts } from './grafanaalerts.js';
 import { registerNtfyInbox } from './ntfyinbox.js';
+import { maskSecretInUrl, registerHooks } from './monitoring/hook.js';
 import { registerMonitoring, reloadSources } from './monitoring/sources.js';
 import { startMonitoring } from './monitoring/watch.js';
 import { registerGuests } from './guests.js';
@@ -63,7 +64,11 @@ const app = Fastify({
   ...(tls ? { https: tls } : {}),
   trustProxy: cfg.trustProxy,
   bodyLimit: 64 * 1024,
-  logger: { level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.cookie', 'req.headers.authorization'] },
+  logger: {
+    level: process.env.LOG_LEVEL ?? 'info', redact: ['req.headers.cookie', 'req.headers.authorization'],
+    // The same request fields Fastify logs by default, with a ?token= webhook secret hidden.
+    serializers: { req: (req: { method?: string; url?: string; headers?: Record<string, unknown>; ip?: string; socket?: { remotePort?: number } }) => ({ method: req.method, url: maskSecretInUrl(req.url ?? ''), host: String(req.headers?.host ?? ''), remoteAddress: req.ip, remotePort: req.socket?.remotePort }) },
+  },
 }) as unknown as FastifyInstance;
 if (tls) watchTls(app.server as unknown as import('node:https').Server, cfg.dbPath, app.log);
 
@@ -143,6 +148,7 @@ registerGrafana(app);
 registerGrafanaAlerts(app);
 registerNtfyInbox(app);
 registerMonitoring(app);
+registerHooks(app);
 registerKuma(app);
 registerMetrics(app);
 registerFeatures(app);

@@ -9,6 +9,7 @@ import { alertmanagerProvider } from './providers/alertmanager.js';
 import { grafanaProvider } from './providers/grafana.js';
 import { jsonPollProvider } from './providers/jsonpoll.js';
 import { prometheusProvider } from './providers/prometheus.js';
+import { webhookProvider } from './providers/webhook.js';
 import { kumaProvider } from './providers/kuma.js';
 import { BOOT, applyRuntimeConfig, isShadowed } from './runtime.js';
 import { loadSources } from './store.js';
@@ -17,7 +18,7 @@ import type { Provider } from './types.js';
 
 /** Builds the provider for a saved source of one kind. Kinds are added here as their providers are written. */
 type Factory = (s: LoadedSource) => Provider;
-export const FACTORIES: Record<string, Factory> = { prometheus: prometheusProvider, alertmanager: alertmanagerProvider, jsonpoll: jsonPollProvider };
+export const FACTORIES: Record<string, Factory> = { prometheus: prometheusProvider, alertmanager: alertmanagerProvider, jsonpoll: jsonPollProvider, webhook: webhookProvider };
 
 const implicit = (): Instance[] => [
   { id: 'kuma', provider: kumaProvider, managed: BOOT.kuma ? 'config' : 'ui' },
@@ -38,7 +39,9 @@ export function reloadSources(warn: (m: string) => void = () => {}): LoadedSourc
   cached = [
     ...implicit(),
     ...loaded.filter((s) => s.enabled && s.kind !== 'kuma' && s.kind !== 'grafana' && !isShadowed(s.kind) && FACTORIES[s.kind]).map((s): Instance => ({
-      id: s.id, provider: FACTORIES[s.kind](s), label: s.name, managed: 'ui', intervalS: s.intervalS,
+      id: s.id, provider: FACTORIES[s.kind](s), label: s.name, managed: 'ui',
+      // A webhook source only reads its own database rows, so it is read every cycle: pushed alerts must not wait for a pull interval.
+      intervalS: s.kind === 'webhook' ? 0 : s.intervalS,
     })),
   ];
   return loaded;
