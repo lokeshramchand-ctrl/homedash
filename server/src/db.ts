@@ -118,6 +118,9 @@ CREATE TABLE IF NOT EXISTS monitoring_hook_state (
   detail TEXT, url TEXT, since INTEGER NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY (source_id, key)
 );
 CREATE INDEX IF NOT EXISTS hook_state_seen ON monitoring_hook_state (last_seen);
+CREATE TABLE IF NOT EXISTS user_usage (
+  user TEXT NOT NULL, item TEXT NOT NULL, score REAL NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY (user, item)
+);
 CREATE TABLE IF NOT EXISTS silences (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, reason TEXT, starts_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, categories TEXT, contains TEXT,
   days TEXT, tod_start TEXT, tod_minutes INTEGER, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -175,6 +178,7 @@ function purgeExpired() {
     d.prepare(`DELETE FROM ${t} WHERE expires_at < ?`).run(now);
   }
   purgeHookState(now);
+  d.prepare('DELETE FROM user_usage WHERE user NOT IN (SELECT username FROM users)').run(); // people who no longer exist
 }
 
 /** Pushed monitoring state that nobody has refreshed within its source's TTL, and state whose source no longer exists. */

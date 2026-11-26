@@ -23,6 +23,7 @@ const ADMIN_WRITE_PREFIXES = ['/api/nginx', '/api/host', '/api/notify/routes'];
 export function requiredRole(method: string, path: string): Role {
   if (path.startsWith('/api/auth/')) return 'viewer'; // login, logout, who am I: any signed-in user
   if (path.startsWith('/api/prefs/')) return 'viewer'; // a person's own layout and theme: harmless, so every role may save them
+  if (path === '/api/usage' || path.startsWith('/api/usage/')) return 'viewer'; // a person's own most-used list: own data only, harmless
   if (ADMIN_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) return 'admin';
   const read = method === 'GET' || method === 'HEAD';
   if (!read && ADMIN_WRITE_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) return 'admin';
