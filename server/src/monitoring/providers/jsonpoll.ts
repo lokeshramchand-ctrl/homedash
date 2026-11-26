@@ -46,10 +46,17 @@ export function parseStatusMap(text: string | undefined): Record<string, Status>
 
 export interface JsonMapping { items_path?: string; name_path?: string; status_path?: string; status_map?: string; detail_path?: string }
 
+/** Pure: the list at a path. An object whose values are the items (keyed by name, as some tools answer) counts as a list. */
+export function listAt(body: unknown, path: string | undefined): unknown[] {
+  const at = getPath(body, path ?? '$');
+  if (Array.isArray(at)) return at;
+  if (at && typeof at === 'object') return Object.values(at as Record<string, unknown>);
+  throw new Error(`"${cap(path, 80)}" does not lead to a list in the answer`);
+}
+
 /** Pure: the JSON answer to checks. Throws when the list path does not lead to a list. */
 export function mapJson(body: unknown, m: JsonMapping): Check[] {
-  const list = getPath(body, m.items_path ?? '$');
-  if (!Array.isArray(list)) throw new Error(`"${cap(m.items_path, 80)}" does not lead to a list in the answer`);
+  const list = listAt(body, m.items_path);
   const map = parseStatusMap(m.status_map);
   const out: Check[] = [];
   for (const item of list.slice(0, MAX_ITEMS)) {
@@ -101,8 +108,7 @@ export function toMillis(v: unknown): number | null {
  * Throws when the list path does not lead to a list.
  */
 export function mapJsonAlerts(body: unknown, m: AlertMapping): MonAlert[] {
-  const list = getPath(body, m.items_path ?? '$');
-  if (!Array.isArray(list)) throw new Error(`"${cap(m.items_path, 80)}" does not lead to a list in the answer`);
+  const list = listAt(body, m.items_path);
   const levels = parseLevelMap(m.level_map);
   const only = String(m.alert_values ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
   const out: MonAlert[] = [];

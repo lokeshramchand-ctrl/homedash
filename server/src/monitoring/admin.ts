@@ -10,7 +10,7 @@ import { logEvent } from '../events.js';
 import { parseGrafanaRules } from '../grafanaalerts.js';
 import { parseMetrics } from '../kuma.js';
 import { sealKey } from '../tilestore.js';
-import { SOURCE_KINDS, fieldVisible, kindSpec } from './catalog.js';
+import { SOURCE_KINDS, SOURCE_TEMPLATES, applyTemplate, fieldVisible, kindSpec, templateSpec } from './catalog.js';
 import { mapPromText } from './prometheus-text.js';
 import { getJson, trimUrl } from './providers/http.js';
 import { parseTargets } from './providers/probe.js';
@@ -28,9 +28,14 @@ const str = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
 const clamp = (v: unknown, lo: number, hi: number, d: number) => Math.min(Math.max(Number(v) || d, lo), hi);
 
 /** Validates a form body into a SourceInput. `prev` supplies secrets the form left blank (edit). */
-export async function buildInput(kind: string, body: Record<string, unknown>, prev?: LoadedSource): Promise<SourceInput> {
+export async function buildInput(kind: string, rawBody: Record<string, unknown>, prev?: LoadedSource): Promise<SourceInput> {
   const spec = kindSpec(kind);
   if (!spec) throw bad('Pick a kind of source');
+  // A template is the custom HTTP source with the tool's request and reading already filled in; what it fixes cannot be overridden.
+  const tpl = typeof rawBody.template === 'string' && rawBody.template ? templateSpec(rawBody.template) : undefined;
+  if (rawBody.template && !tpl) throw bad('Unknown template');
+  if (tpl && kind !== 'http') throw bad('A template belongs to the custom HTTP source');
+  const body = tpl ? applyTemplate(tpl, rawBody) : rawBody;
   if (isShadowed(kind)) throw bad(`${spec.label} is already set in homedash.yaml or the environment; change it there.`);
   if ((kind === 'kuma' || kind === 'grafana') && listSources().some((s) => s.kind === kind && s.id !== prev?.id)) {
     throw bad(`Only one ${spec.label} source can be connected.`);
@@ -70,6 +75,7 @@ export async function buildInput(kind: string, body: Record<string, unknown>, pr
     }
     if (v) config[f.name] = v;
   }
+  if (tpl) config.template = tpl.id;
   if (kind === 'jsonpoll' && /^\s*$/.test(config.items_path ?? '')) throw bad('Path to the list is required.');
   // Things only the whole configuration can say: refuse a request that could not be sent, a list of checks that cannot be read.
   try {
@@ -141,7 +147,7 @@ export function registerMonitoringAdmin(app: FastifyInstance) {
   const stateOf = (id: string) => monitoringEngine.merged().sources.find((s) => s.id === id) ?? null;
   const noKey = () => { if (!sealKey()) throw new HttpError(503, 'NO_SECRET_KEY', 'Set SECRETS_KEY (homedash-config apply creates one) before connecting sources from the UI'); };
 
-  app.get('/api/monitoring/catalog', async () => ({ kinds: SOURCE_KINDS, canEdit: sealKey() !== '' }));
+  app.get('/api/monitoring/catalog', async () => ({ kinds: SOURCE_KINDS, templates: SOURCE_TEMPLATES, canEdit: sealKey() !== '' }));
 
   app.get('/api/monitoring/sources', async () => ({
     canEdit: sealKey() !== '',

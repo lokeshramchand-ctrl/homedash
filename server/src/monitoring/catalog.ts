@@ -142,5 +142,92 @@ export const SOURCE_KINDS: SourceKind[] = [
   },
 ];
 
+/**
+ * A ready-made configuration of the custom HTTP source for one well-known tool. `ask` is what the person is asked for; `fixed`
+ * is filled in for them and cannot be changed in the form. Adding a tool means adding an entry here, not writing code.
+ * Only tools whose request and answer were checked against their own documentation are listed (docs/research/monitoring-templates-formats.md).
+ */
+export interface SourceTemplate {
+  id: string; label: string; summary: string; hint: string;
+  /** which documentation the request and the reading of the answer were checked against */
+  verified: string;
+  ask: FieldSpec[];
+  fixed: Record<string, string>;
+  /** the person gives the tool's base address; this is appended (once) */
+  urlSuffix?: string;
+  /** the tool has one fixed address, so the person is not asked */
+  fixedUrl?: string;
+}
+
+const ADDRESS = (hint: string): FieldSpec => ({ name: 'url', label: 'Address', type: 'url', required: true, hint });
+
+export const SOURCE_TEMPLATES: SourceTemplate[] = [
+  {
+    id: 'healthchecks', label: 'Healthchecks.io', summary: 'Which cron jobs and backups reported in on time.',
+    hint: 'Create a read-only API key in the project settings. Checks that are late (grace) show as a warning, down checks as down, paused ones are ignored.',
+    verified: 'Healthchecks.io API v3 documentation (Management API, list checks)',
+    ask: [ADDRESS('https://healthchecks.io, or the address of your own install'), { name: 'secret', label: 'Read-only API key', type: 'secret', required: true }],
+    urlSuffix: '/api/v3/checks/',
+    fixed: { method: 'GET', auth: 'header', header_name: 'X-Api-Key', parse: 'json_checks', items_path: 'checks', name_path: 'name', status_path: 'status', status_map: 'up=up, down=down, grace=pending, paused=maintenance, new=unknown' },
+  },
+  {
+    id: 'zabbix', label: 'Zabbix', summary: 'Problems that are open right now.',
+    hint: 'For Zabbix 6.4 and newer (the API token goes in a header there). Create an API token under Users, API tokens, for a user who can see the hosts you care about.',
+    verified: 'Zabbix manual 6.4 to 8.0: API, problem.get',
+    ask: [ADDRESS('The Zabbix web interface, for example http://192.168.1.30/zabbix'), { name: 'secret', label: 'API token', type: 'secret', required: true }],
+    urlSuffix: '/api_jsonrpc.php',
+    fixed: {
+      method: 'POST', auth: 'bearer', extra_headers: 'Content-Type: application/json-rpc',
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'problem.get', params: { output: 'extend', recent: false, sortfield: ['eventid'], sortorder: 'DESC' }, id: 1 }),
+      parse: 'json_alerts', items_path: 'result', name_path: 'name', level_path: 'severity', level_map: '5=error, 4=error, 3=warn, 2=warn, 1=info, 0=info', since_path: 'clock', key_path: 'eventid',
+    },
+  },
+  {
+    id: 'uptimerobot', label: 'Uptime Robot', summary: 'Your Uptime Robot monitors (API v2).',
+    hint: 'Uses the v2 API with a read-only key from your account. The newer v3 API is not covered. The free plan allows ten requests a minute; homedash reads once a minute.',
+    verified: 'Uptime Robot API v2 documentation (getMonitors)',
+    ask: [{ name: 'secret', label: 'Read-only API key', type: 'secret', required: true }],
+    fixedUrl: 'https://api.uptimerobot.com/v2/getMonitors',
+    fixed: {
+      method: 'POST', auth: 'none', extra_headers: 'Content-Type: application/x-www-form-urlencoded', body: 'api_key={{secret}}&format=json&limit=50',
+      parse: 'json_checks', items_path: 'monitors', name_path: 'friendly_name', status_path: 'status', status_map: '2=up, 9=down, 8=pending, 0=maintenance, 1=unknown',
+    },
+  },
+  {
+    id: 'netdata', label: 'Netdata', summary: 'Alarms that are raised on a Netdata agent.',
+    hint: 'Uses the classic alarms endpoint, which Netdata marks as deprecated but still serves. An unclaimed agent needs no token; if bearer protection is on, choose Bearer token and paste one.',
+    verified: 'Netdata agent API (swagger), /api/v1/alarms',
+    ask: [ADDRESS('For example http://192.168.1.40:19999'), { name: 'auth', label: 'Sign in with', type: 'select', options: [{ value: 'none', label: 'Nothing' }, { value: 'bearer', label: 'Bearer token' }] }, { name: 'secret', label: 'Bearer token', type: 'secret', showWhen: { field: 'auth', in: ['bearer'] } }],
+    urlSuffix: '/api/v1/alarms',
+    fixed: { method: 'GET', parse: 'json_alerts', items_path: 'alarms', name_path: 'name', status_path: 'status', alert_values: 'warning, critical', level_path: 'status', level_map: 'critical=error, warning=warn', summary_path: 'info', since_path: 'last_status_change', key_path: 'id' },
+  },
+  {
+    id: 'checkmk', label: 'Checkmk', summary: 'Services that are not OK.',
+    hint: 'For Checkmk 2.3.0p31, 2.4 and 2.5. Use an automation user and type the user name, a space, then its secret (for example: automation MYSECRET). Checkmk 3.0 will remove this endpoint.',
+    verified: 'Checkmk 2.4.0 REST API source (services endpoint) and its documentation',
+    ask: [ADDRESS('The address including the site name, for example http://192.168.1.50/mysite'), { name: 'secret', label: 'Automation user and secret', type: 'secret', required: true, hint: 'user name, a space, then the secret' }],
+    urlSuffix: '/check_mk/api/1.0/domain-types/service/collections/all',
+    fixed: {
+      method: 'POST', auth: 'bearer',
+      body: JSON.stringify({ columns: ['host_name', 'description', 'state', 'plugin_output'], query: { op: '!=', left: 'state', right: '0' } }),
+      parse: 'json_alerts', items_path: 'value', name_path: 'title', level_path: 'extensions.state', level_map: '2=error, 3=warn, 1=warn', summary_path: 'extensions.plugin_output', key_path: 'id',
+    },
+  },
+];
+
+export const templateSpec = (id: string): SourceTemplate | undefined => SOURCE_TEMPLATES.find((t) => t.id === id);
+
+/** Pure: a form body for a template to a body for the custom HTTP source. What the template fixes cannot be overridden. */
+export function applyTemplate(t: SourceTemplate, body: Record<string, unknown>): Record<string, unknown> {
+  if (t.fixedUrl) return { ...body, ...t.fixed, url: t.fixedUrl, template: t.id };
+  const given = String(body.url ?? '').trim().replace(/\/+$/, '');
+  if (!given) return { ...body, ...t.fixed, url: '', template: t.id };
+  // The suffix is added once: editing a saved source gives back the full address, which must not get it a second time.
+  const suffix = t.urlSuffix ?? '';
+  const core = suffix.replace(/\/+$/, '');
+  const url = !suffix ? given : given.endsWith(core) ? given + (suffix.endsWith('/') ? '/' : '') : given + suffix;
+  return { ...body, ...t.fixed, url, template: t.id };
+}
+
 export const kindSpec = (kind: string): SourceKind | undefined => SOURCE_KINDS.find((k) => k.kind === kind);
 export const secretFields = (kind: string): string[] => kindSpec(kind)?.fields.filter((f) => f.type === 'secret').map((f) => f.name) ?? [];
