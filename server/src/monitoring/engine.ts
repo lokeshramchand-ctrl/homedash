@@ -3,25 +3,32 @@
 import type { Problem } from '../maintenance.js';
 import type { Merged, Polled, Provider, SourceState } from './types.js';
 
-export interface Instance { id: string; provider: Provider }
+export interface Instance {
+  id: string; provider: Provider;
+  /** Shown instead of the provider's label (a person's own name for the source). */
+  label?: string;
+  managed?: 'config' | 'ui';
+  /** Minimum seconds between reads of this source; 0 or absent means every cycle. */
+  intervalS?: number;
+}
 
 const STATUS_RANK: Record<string, number> = { down: 0, pending: 1, unknown: 2, maintenance: 3, up: 4 };
 const LEVEL_RANK = { error: 0, warn: 1, info: 2 } as const;
 
-export function createEngine(instances: () => Instance[]) {
-  const st = new Map<string, { last: Polled; state: SourceState; fails: number }>();
+export function createEngine(instances: () => Instance[], now: () => number = Date.now) {
+  const st = new Map<string, { last: Polled; state: SourceState; fails: number; polledAt: number }>();
 
   async function pollOne(i: Instance) {
     const prev = st.get(i.id);
-    const base = { id: i.id, kind: i.provider.kind, label: i.provider.label, managed: 'config' as const };
+    const base = { id: i.id, kind: i.provider.kind, label: i.label ?? i.provider.label, managed: i.managed ?? ('config' as const) };
     try {
       const last = await i.provider.poll();
-      st.set(i.id, { last, fails: 0, state: { ...base, ok: true, stale: false, error: null, checkedAt: Date.now(), checks: last.checks.length, alerts: last.alerts.length } });
+      st.set(i.id, { last, fails: 0, polledAt: now(), state: { ...base, ok: true, stale: false, error: null, checkedAt: now(), checks: last.checks.length, alerts: last.alerts.length } });
     } catch (e) {
       // Keep what we knew: a source that stops answering must not make its problems disappear.
       const keep = prev?.last ?? { checks: [], alerts: [] };
       const was = prev?.state ?? { ...base, ok: false, stale: false, error: null, checkedAt: 0, checks: 0, alerts: 0 };
-      st.set(i.id, { last: keep, fails: (prev?.fails ?? 0) + 1, state: { ...was, ok: false, stale: !!prev, error: (e as Error).message.slice(0, 300) } });
+      st.set(i.id, { last: keep, fails: (prev?.fails ?? 0) + 1, polledAt: now(), state: { ...was, label: base.label, managed: base.managed, ok: false, stale: !!prev, error: (e as Error).message.slice(0, 300) } });
     }
   }
 
@@ -29,7 +36,8 @@ export function createEngine(instances: () => Instance[]) {
     async pollAll() {
       const list = instances().filter((i) => i.provider.configured());
       for (const id of [...st.keys()]) if (!list.some((i) => i.id === id)) st.delete(id);
-      await Promise.allSettled(list.map(pollOne));
+      const due = list.filter((i) => { const p = st.get(i.id); return !p || !i.intervalS || now() - p.polledAt >= i.intervalS * 1000; });
+      await Promise.allSettled(due.map(pollOne));
     },
     merged(): Merged {
       const checks: Merged['checks'] = [];
@@ -42,7 +50,7 @@ export function createEngine(instances: () => Instance[]) {
       }
       checks.sort((a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || a.name.localeCompare(b.name));
       alerts.sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || Number(b.state === 'firing') - Number(a.state === 'firing') || (a.since ?? 0) - (b.since ?? 0));
-      return { sources, checks, alerts, checkedAt: Date.now() };
+      return { sources, checks, alerts, checkedAt: now() };
     },
     failures: (id: string) => st.get(id)?.fails ?? 0,
   };

@@ -25,7 +25,7 @@ import { HttpError } from './errors.js';
 import { registerGrafana } from './grafana.js';
 import { registerGrafanaAlerts } from './grafanaalerts.js';
 import { registerNtfyInbox } from './ntfyinbox.js';
-import { registerMonitoring } from './monitoring/sources.js';
+import { registerMonitoring, reloadSources } from './monitoring/sources.js';
 import { startMonitoring } from './monitoring/watch.js';
 import { registerGuests } from './guests.js';
 import { registerHost } from './host.js';
@@ -175,6 +175,7 @@ registerInsights(app);
 registerHealth(app);
 registerScenes(app);
 if (cfg.serveDist) await app.register(staticFiles, { root: resolve(cfg.serveDist) });
+reloadSources((m) => app.log.warn(m)); // applies a Kuma/Grafana source saved in the UI before the scraper starts
 startKuma(app);
 startEvents(app);
 startMonitoring(app);

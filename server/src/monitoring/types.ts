@@ -17,7 +17,7 @@ export interface Provider {
 }
 
 export interface SourceState {
-  id: string; kind: string; label: string; managed: 'config';
+  id: string; kind: string; label: string; managed: 'config' | 'ui';
   ok: boolean; stale: boolean; error: string | null; checkedAt: number; checks: number; alerts: number;
 }
 export interface Merged {

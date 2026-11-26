@@ -41,6 +41,7 @@ export function parseMetrics(text: string): Scraped[] {
 }
 
 async function scrape(app: FastifyInstance) {
+  if (!kumaConfigured()) return; // a source removed in the UI: stop reading, keep the timer
   try {
     const res = await fetch(`${cfg.kumaUrl}/metrics`, {
       headers: { Authorization: `Basic ${Buffer.from(`:${cfg.kumaApiKey}`).toString('base64')}` },
@@ -62,11 +63,18 @@ async function scrape(app: FastifyInstance) {
   }
 }
 
+let kumaApp: FastifyInstance | null = null, kumaStarted = false;
+/** Starts the scraper once. Safe to call again (for example after a Kuma source is saved in the UI). */
 export function startKuma(app: FastifyInstance) {
+  kumaApp = app;
+  if (kumaStarted) return;
   if (!kumaConfigured()) { app.log.warn('Uptime Kuma not configured; /api/kuma/* will return 503'); return; }
+  kumaStarted = true;
   void scrape(app);
   setInterval(() => void scrape(app), cfg.kumaPollMs).unref();
 }
+/** Called after the configuration changed at runtime: starts the scraper if Kuma has just been configured. */
+export const ensureKuma = () => { if (kumaApp) startKuma(kumaApp); };
 
 async function current(): Promise<Scraped[]> {
   if (!kumaConfigured()) throw notConfigured('Uptime Kuma');
