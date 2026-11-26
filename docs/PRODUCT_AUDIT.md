@@ -47,7 +47,7 @@ Proxmox multi-cluster (nodes, guests, QEMU/LXC power, snapshots, tasks, HA, migr
 
 - In the browser pass, the Nginx page returned HTTP 500 twice in an environment with no nginx. The cause was not investigated; it may be an expected "not installed" case reported as an error.
 - Pages for integrations that are not set up log HTTP 503 as browser console errors. The UI explains them, but the console noise would hide real errors.
-- The axe accessibility test fails on Overview: one serious colour-contrast finding on the health ring caption (`.hr-center > small`). Not changed by this pass; not checked against the earlier commit.
+- The axe test reported a colour-contrast finding on the Overview health ring (axe measured the score text against the ring arc). Fixed afterwards; all 15 browser tests pass.
 - `HANDOFF.md` is stale: it says every UI page was never opened in a browser and 121 tests pass. Both are now different.
 
 ## 6. Missing against the product brief

@@ -49,4 +49,4 @@ Mobile: read-only Services screen added; still no push receiver. Accessibility: 
 ## Test results for this pass
 - Server: 290 tests, 290 pass, 0 fail (`cd server && npm test`).
 - Type checks clean: server, web, mobile. Web build succeeds.
-- Browser (Playwright, Chromium, mock Proxmox): 13 pass, 2 fail. Both failures are the axe accessibility test, one serious colour-contrast finding on Overview (`.hr-center > small`, the caption in the health ring). Overview was not changed in this pass; whether it also fails on the commit before it was not checked. The new pages are not in the axe page list yet.
+- Browser (Playwright, Chromium, mock Proxmox): 15 of 15 pass, including the axe accessibility checks in both themes. The Overview health-ring contrast finding (axe measured the text against the ring's arc) was fixed by giving the score and caption an explicit background. The new pages are not in the axe page list yet.
