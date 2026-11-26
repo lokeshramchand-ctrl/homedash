@@ -134,7 +134,7 @@ export default function Login({ onLogin, initialStep = 'password' }: { onLogin: 
           )}
         </Reveal>
       </InView>
-      <div className="login-foot"><span>homedash</span><span>Secured session · HTTPS</span></div>
+      <div className="login-foot"><span>homedash</span><span>{location.protocol === 'https:' ? 'Secured session · HTTPS' : 'Not encrypted · HTTP, use HTTPS before real use'}</span></div>
     </div>
   );
 }

@@ -189,6 +189,10 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
   }
 
   const current = NAV.find((n) => n.id === page) ?? NAV[0];
+  // A bad or switched-off route used to fall through to the Overview with the bad URL left in the bar. Wait for the
+  // feature list before judging, so a valid page is not flagged while it is still loading.
+  const missing = page !== 'overview' && features.data !== undefined && !NAV.some((n) => n.id === page);
+  const knownButOff = missing && ALL_NAV.some((n) => n.id === page);
   const [q, setQ] = useState('');
   const pendingQ = useRef('');
   useEffect(() => { setQ(pendingQ.current); pendingQ.current = ''; }, [current.id]);
@@ -298,8 +302,14 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
                 <Icon name="info" size={16} /><span><b>homedash {version.data.latest} is available</b> (you run {version.data.current}). Open the container console in Proxmox and run <code>update</code>.{version.data.url && <> <a className="link" href={version.data.url} target="_blank" rel="noopener noreferrer">What changed</a></>}</span>
               </div>
             )}
-            {current.id === 'overview' && role === 'admin' && <SetupNudge />}
-            {current.id === 'overview' && <Overview />}
+            {missing && (
+              <div className="callout warn" role="alert">
+                <Icon name="info" size={16} />
+                <span>{knownButOff ? <><b>This page isn’t available.</b> It is switched off or needs a different role.</> : <><b>No page called “{page}”.</b></>} <a className="link" href="#/overview">Go to Overview</a>{role === 'admin' && knownButOff && <> or <a className="link" href="#/setup">open Setup</a></>}</span>
+              </div>
+            )}
+            {!missing && current.id === 'overview' && role === 'admin' && <SetupNudge />}
+            {!missing && current.id === 'overview' && <Overview />}
             {current.id === 'node' && <Node tab={parts[1]} />}
             {current.id === 'guests' && (parts[1] && /^\d+$/.test(parts[1]) ? <GuestDetail vmid={Number(parts[1])} tab={parts[2]} /> : <Guests />)}
             {current.id === 'tasks' && <Tasks />}

@@ -8,14 +8,14 @@ import { fmtBytes, fmtPct, fmtUptime, timeAgo } from '../format';
 import { useCountUp, useQuery } from '../hooks';
 import type { Overview as Ov } from '../types';
 
-function Tile({ icon, label, value, sub, tone, href }: { icon: IconName; label: string; value: number; sub: string; tone: Tone; href: string }) {
+function Tile({ icon, label, value, sub, tone, href, na }: { icon: IconName; label: string; value: number; sub: string; tone: Tone; href: string; na?: boolean }) {
   const n = Math.round(useCountUp(value));
   return (
     <a className={`tile ic-${tone}`} href={href}>
       <div className="tile-top"><span className="tile-label">{label}</span><span className="tile-ic"><Icon name={icon} size={20} /></span></div>
       <div>
-        <p className="tile-value">{n}</p>
-        <p className="tile-sub">{sub}</p>
+        <p className="tile-value">{na ? '—' : n}</p>
+        <p className="tile-sub">{na ? 'Not connected' : sub}</p>
       </div>
     </a>
   );
@@ -72,14 +72,41 @@ export default function Overview() {
   const inc = useQuery(api.incidents, [], 10000);
   const pct = (v: number) => `${v.toFixed(0)}%`;
 
-  const items = ov.data && inc.data ? attention(ov.data, inc.data) : null;
+  // Kuma incidents failing (Kuma not set up) must not blank the whole list: every source is optional.
+  const items = ov.data ? attention(ov.data, inc.data ?? []) : null;
+  // Zeros from an integration that was never set up look like real, healthy data; say "not connected" instead.
+  const cf = ov.data?.configured;
+  const noPve = !!cf && !cf.proxmox, noKuma = !!cf && !cf.kuma, noMetrics = !!cf && !cf.metrics;
+  const nothingConnected = noPve && noKuma && noMetrics;
 
   return (
     <>
-      <Hero items={items} ov={ov.data} />
+      <Hero items={items} ov={ov.data} noPve={noPve} nothingConnected={nothingConnected} />
 
       <Card className="health-card">
-        {items === null || !ov.data ? (
+        {noPve && ov.data && items ? (
+          <div className="health-row">
+            <div className="health-main">
+              <div className="health-text">
+                <p className="eyebrow">System health</p>
+                <h3 className={`attn-title ${items.length || nothingConnected ? '' : 'ok'}`}>{nothingConnected ? 'Nothing connected yet' : items.length ? `${items.length} ${items.length === 1 ? 'item needs' : 'items need'} attention` : 'Nothing needs attention'}</h3>
+                <p className="muted small">{nothingConnected ? 'Connect Proxmox to see guests, host health and alerts here.' : 'Proxmox is not connected, so host health is not shown.'}</p>
+              </div>
+            </div>
+            {items.length > 0 ? (
+              <div className="attn-grid">
+                {items.map((a) => (
+                  <a key={a.key} href={a.href} className={`attn ${a.tone}`}>
+                    <span className="attn-top"><span>{a.label}</span><b>{a.value}</b></span>
+                    <span>{a.text}</span>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="health-ok"><Icon name="info" size={18} /><span><a className="link" href="#/setup">Open Setup</a> to connect {nothingConnected ? 'Proxmox, Grafana, Uptime Kuma and alerts' : 'Proxmox'}.</span></div>
+            )}
+          </div>
+        ) : items === null || !ov.data ? (
           ov.error || inc.error
             ? <ErrorState error={(ov.error ?? inc.error) as Error} onRetry={() => { ov.reload(); inc.reload(); }} />
             : <Skeleton rows={2} h={88} />
@@ -110,11 +137,11 @@ export default function Overview() {
       </Card>
 
       <div className="grid-3">
-        <AreaCard icon="cpu" title="CPU Usage" sub="Processor utilization over time" color="var(--blue)" format={pct}
+        <AreaCard icon="cpu" title="CPU Usage" notConnected={noMetrics} sub="Processor utilization over time" color="var(--blue)" format={pct}
           query={'100 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100'} />
-        <AreaCard icon="pulse" title="Memory Usage" sub="RAM consumption trends" color="var(--green)" format={pct}
+        <AreaCard icon="pulse" title="Memory Usage" notConnected={noMetrics} sub="RAM consumption trends" color="var(--green)" format={pct}
           query={'(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100'} />
-        <AreaCard icon="network" title="Network Traffic" sub="Network bandwidth utilization" color="var(--peri)" format={(v) => `${(v / 1e6).toFixed(0)} MB/s`}
+        <AreaCard icon="network" title="Network Traffic" notConnected={noMetrics} sub="Network bandwidth utilization" color="var(--peri)" format={(v) => `${(v / 1e6).toFixed(0)} MB/s`}
           query={'rate(node_network_receive_bytes_total{device="vmbr0"}[5m])'} />
       </div>
 
@@ -122,20 +149,20 @@ export default function Overview() {
         {(o) => (
           <>
             <div className="tiles">
-              <Tile href="#/guests" icon="server" tone="gray" label="Guests" value={o.guests.total} sub={`${o.guests.running} running · ${o.guests.stopped} stopped`} />
-              <Tile href="#/guests" icon="power" tone="green" label="Running" value={o.guests.running} sub={`${o.guests.stopped} stopped`} />
+              <Tile href="#/guests" icon="server" tone="gray" label="Guests" value={o.guests.total} sub={`${o.guests.running} running · ${o.guests.stopped} stopped`} na={noPve} />
+              <Tile href="#/guests" icon="power" tone="green" label="Running" value={o.guests.running} sub={`${o.guests.stopped} stopped`} na={noPve} />
               <Tile href="#/nginx" icon="globe" tone="blue" label="Nginx sites" value={o.nginx.sites} sub="sites-enabled" />
-              <Tile href="#/kuma" icon="pulse" tone="green" label="Monitors up" value={o.kuma.up} sub={`${o.kuma.pending} pending`} />
-              <Tile href="#/kuma" icon="alert" tone={o.kuma.down ? 'red' : 'gray'} label="Monitors down" value={o.kuma.down} sub={o.kuma.down ? 'Needs attention' : 'All clear'} />
+              <Tile href="#/kuma" icon="pulse" tone="green" label="Monitors up" value={o.kuma.up} sub={`${o.kuma.pending} pending`} na={noKuma} />
+              <Tile href="#/kuma" icon="alert" tone={o.kuma.down ? 'red' : 'gray'} label="Monitors down" value={o.kuma.down} sub={o.kuma.down ? 'Needs attention' : 'All clear'} na={noKuma} />
             </div>
             <div className="grid-3">
               <Card>
-                <CardHead title="Host resources" sub={`Uptime ${fmtUptime(o.host.uptime)}`} />
-                <div className="res">
+                <CardHead title="Host resources" sub={noPve ? 'Proxmox host' : `Uptime ${fmtUptime(o.host.uptime)}`} />
+                {noPve ? <p className="muted small" style={{ padding: '24px 0' }}>Not connected. <a className="link" href="#/setup">Connect Proxmox in Setup</a></p> : <div className="res">
                   <Res icon="cpu" label="CPU" pct={o.host.cpu} text={fmtPct(o.host.cpu)} />
                   <Res icon="memory" label="Memory" pct={o.host.memUsed / o.host.memTotal} text={`${fmtBytes(o.host.memUsed)} / ${fmtBytes(o.host.memTotal, 0)}`} />
                   <Res icon="disk" label="Disk" pct={o.host.diskUsed / o.host.diskTotal} text={`${fmtBytes(o.host.diskUsed, 0)} / ${fmtBytes(o.host.diskTotal, 0)}`} />
-                </div>
+                </div>}
               </Card>
               <Card className="span-2">
                 <CardHead title="Recent incidents" sub="From Uptime Kuma" right={<a className="link" href="#/kuma">All monitors</a>} />
@@ -174,7 +201,7 @@ function Res({ icon, label, pct, text }: { icon: IconName; label: string; pct: n
   );
 }
 
-function Hero({ items, ov }: { items: Attn[] | null; ov?: Ov }) {
+function Hero({ items, ov, noPve, nothingConnected }: { items: Attn[] | null; ov?: Ov; noPve?: boolean; nothingConnected?: boolean }) {
   const bad = !!items?.length;
   return (
     <InView>
@@ -187,8 +214,8 @@ function Hero({ items, ov }: { items: Attn[] | null; ov?: Ov }) {
         <h1><RevealWords text="Everything, at a glance." /></h1>
         <Reveal stagger={5} className="hero-sub">
           <i className={`hero-dot ${bad ? 'bad' : ''}`} />
-          <span>{items === null ? 'Checking systems…' : bad ? `${items.length} ${items.length === 1 ? 'item needs' : 'items need'} attention` : 'All systems healthy'}</span>
-          {ov && <><span className="sep" /><span>{ov.guests.running} of {ov.guests.total} guests running</span></>}
+          <span>{nothingConnected ? 'Nothing connected yet' : items === null ? 'Checking systems…' : bad ? `${items.length} ${items.length === 1 ? 'item needs' : 'items need'} attention` : noPve ? 'Proxmox not connected' : 'All systems healthy'}</span>
+          {ov && !noPve && <><span className="sep" /><span>{ov.guests.running} of {ov.guests.total} guests running</span></>}
         </Reveal>
       </section>
     </InView>

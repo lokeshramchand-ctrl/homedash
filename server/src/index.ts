@@ -70,7 +70,15 @@ app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, req, r
   return reply.code(status).send({ error: status >= 500 ? 'Internal server error' : err.message, code: status >= 500 ? 'INTERNAL' : err.code ?? 'BAD_REQUEST' });
 });
 
-app.setNotFoundHandler((req, reply) => reply.code(404).send({ error: `No route for ${req.method} ${req.url.split('?')[0]}`, code: 'NOT_FOUND' }));
+const NOT_FOUND_PAGE = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not found · homedash</title>'
+  + '<style>body{font:16px system-ui,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f6f4;color:#111}main{padding:24px;max-width:420px}a{color:inherit}</style>'
+  + '<main><h1>Page not found</h1><p>There is nothing at this address.</p><p><a href="/">Back to homedash</a></p></main>';
+app.setNotFoundHandler((req, reply) => {
+  const path = req.url.split('?')[0];
+  // A person who typed a bad address gets a page with a way back; API clients keep the JSON error.
+  if (req.method === 'GET' && !path.startsWith('/api/') && (req.headers.accept ?? '').includes('text/html')) return reply.code(404).type('text/html; charset=utf-8').send(NOT_FOUND_PAGE);
+  return reply.code(404).send({ error: `No route for ${req.method} ${path}`, code: 'NOT_FOUND' });
+});
 
 const csp = [
   "default-src 'self'",

@@ -4,6 +4,7 @@ export type KumaStatus = 'up' | 'down' | 'pending' | 'maintenance';
 
 export interface Overview {
   cluster?: { id: string; name: string; multi: boolean };
+  configured?: { proxmox: boolean; kuma: boolean; metrics: boolean };
   guests: { total: number; running: number; stopped: number };
   nginx: { sites: number };
   kuma: { up: number; down: number; pending: number };

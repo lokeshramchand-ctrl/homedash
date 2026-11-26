@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { currentCluster, hostPath, multiCluster } from './clusters.js';
+import { grafanaConfigured, kumaConfigured, pveConfigured } from './config.js';
 import { listGuests } from './guests.js';
 import { kumaCounts } from './kuma.js';
 import { listSites } from './nginx.js';
@@ -19,6 +20,8 @@ export function registerOverview(app: FastifyInstance) {
     const n = ok(node);
     return {
       cluster: { id: currentCluster().id, name: currentCluster().name, multi: multiCluster() },
+      // Lets the UI say "not connected" instead of showing zeros that look like real, healthy data.
+      configured: { proxmox: pveConfigured(), kuma: kumaConfigured(), metrics: grafanaConfigured() },
       guests: { total: g.length, running, stopped: g.length - running },
       nginx: { sites: ok(sites)?.length ?? 0 },
       kuma: ok(kuma) ?? { up: 0, down: 0, pending: 0 },

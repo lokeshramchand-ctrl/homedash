@@ -117,7 +117,7 @@ export function CopyButton({ text, compact }: { text: string; compact?: boolean 
   const [ok, setOk] = useState(false);
   const copy = () => { navigator.clipboard?.writeText(text).then(() => { setOk(true); setTimeout(() => setOk(false), 1500); }).catch(() => { /* clipboard blocked */ }); };
   return compact
-    ? <button className={`icon-btn sm copy ${ok ? 'done' : ''}`} onClick={copy} aria-label={ok ? 'Copied' : 'Copy'} title={ok ? 'Copied' : 'Copy'}><span key={String(ok)} className="pop"><Icon name={ok ? 'check' : 'copy'} size={15} /></span></button>
+    ? <button className={`icon-btn sm copy ${ok ? 'done' : ''}`} onClick={copy} aria-label={ok ? 'Copied' : 'Copy'} title={ok ? 'Copied' : 'Copy'}><span key={String(ok)} className="pop"><Icon name={ok ? 'check' : 'copy'} size={15} /></span>{ok && <span className="copied-note" role="status">Copied</span>}</button>
     : <button className={`btn btn-sm btn-ghost copy ${ok ? 'done' : ''}`} onClick={copy}><span key={String(ok)} className="pop"><Icon name={ok ? 'check' : 'copy'} size={15} /></span>{ok ? 'Copied' : 'Copy'}</button>;
 }
 

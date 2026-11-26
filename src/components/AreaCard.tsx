@@ -19,15 +19,16 @@ function smooth(p: [number, number][]): string {
 }
 
 /** Compact "last 24 hours" area card fed by POST /api/metrics/query. */
-export function AreaCard({ icon, title, sub, query, color, format }: {
-  icon: IconName; title: string; sub: string; query: string; color: string; format: (v: number) => string;
+export function AreaCard({ icon, title, sub, query, color, format, notConnected }: {
+  icon: IconName; title: string; sub: string; query: string; color: string; format: (v: number) => string; notConnected?: boolean;
 }) {
   const gid = useId();
   const q = useQuery(async () => {
+    if (notConnected) return [];
     const end = Math.floor(Date.now() / 1000);
     const r = await api.query(query, end - 86400, end, 900);
     return (r.data.result[0]?.values ?? []).map(([, v]) => parseFloat(v));
-  }, [query], 60_000);
+  }, [query, notConnected], 60_000);
 
   const vals = q.data ?? [];
   const W = 300, H = 120;
@@ -42,9 +43,10 @@ export function AreaCard({ icon, title, sub, query, color, format }: {
         <span className="area-val">{vals.length ? format(vals[vals.length - 1]) : q.error ? '—' : ''}</span>
       </div>
       <p className="muted area-sub">{sub}</p>
-      {q.data === undefined && !q.error && <Skeleton rows={1} h={132} />}
-      {q.error && q.data === undefined && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>Couldn’t load metrics. <button className="link" style={{ border: 0, background: 'none' }} onClick={q.reload}>Retry</button></p>}
-      {q.data !== undefined && vals.length === 0 && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>No data for this range.</p>}
+      {notConnected && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>Not connected. <a className="link" href="#/setup">Connect Grafana in Setup</a></p>}
+      {!notConnected && q.data === undefined && !q.error && <Skeleton rows={1} h={132} />}
+      {!notConnected && q.error && q.data === undefined && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>Couldn’t load metrics. <button className="link" style={{ border: 0, background: 'none' }} onClick={q.reload}>Retry</button></p>}
+      {!notConnected && q.data !== undefined && vals.length === 0 && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>No data for this range.</p>}
       {vals.length > 1 && (
         <div className="area">
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${title}, last 24 hours`}>

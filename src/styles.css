@@ -1640,3 +1640,9 @@ body.wall .svc-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr
 @media (max-width: 720px) { .stat-row { flex-wrap: wrap; } .stat-row > div { flex: 1 1 140px; min-width: 0; } }
 
 .code-snippet { margin: 8px 0 0; padding: 12px 14px; border-radius: 10px; background: rgba(0,0,0,.05); font-family: var(--mono, monospace); font-size: 12.5px; overflow-x: auto; }
+
+/* Copy confirmation: a visible word, not only an icon swap (audit FUA-009). */
+.icon-btn.copy.done { width: auto; padding: 0 8px; gap: 5px; }
+.copied-note { font-size: 12px; font-weight: 600; color: var(--text); }
+/* Touch targets: links and small buttons get a taller hit area on phones (audit FUA-010). */
+@media (pointer: coarse) { a.link, button.link { min-height: 32px; padding-block: 4px; } .icon-btn.sm { min-width: 32px; min-height: 32px; } }
