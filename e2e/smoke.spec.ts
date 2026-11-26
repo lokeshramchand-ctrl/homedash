@@ -5,7 +5,7 @@ const USER = process.env.E2E_USER ?? 'admin';
 const PASS = process.env.E2E_PASS ?? '';
 
 // Every page in the navigation. Pages behind a feature flag are skipped when the server does not enable them.
-const PAGES = ['setup', 'backups', 'overview', 'node', 'cluster', 'guests', 'gpu', 'tasks', 'scenes', 'health', 'protection', 'capacity', 'netmap', 'nginx', 'kuma', 'grafana', 'diagnostics', 'logs', 'crowdsec', 'data', 'tiles', 'llama', 'access', 'notifications'];
+const PAGES = ['setup', 'backups', 'overview', 'node', 'cluster', 'guests', 'gpu', 'tasks', 'scenes', 'health', 'protection', 'capacity', 'netmap', 'nginx', 'kuma', 'grafana', 'diagnostics', 'logs', 'crowdsec', 'data', 'tiles', 'llama', 'access', 'notifications', 'monitoring', 'registry', 'identity'];
 
 async function signIn(page: Page) {
   await page.goto('/');

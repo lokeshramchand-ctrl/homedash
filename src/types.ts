@@ -464,3 +464,26 @@ export interface SetupInfo { checks: SetupCheck[]; progress: { done: number; tot
 
 export interface BackupInfo { enabled: boolean; keep: number; everyHours: number; files: { name: string; size: number; at: string }[] }
 export interface AuditReport { ok: boolean; checked: number; head: string | null; brokenAt?: number; problem?: string }
+
+export interface IdentityFinding { level: 'ok' | 'info' | 'warn' | 'error'; text: string }
+export interface IdentityInspection {
+  issuer: string; discoveryUrl: string; discoveryIssuer: string | null; endpoints: Record<string, string>; supports: Record<string, string[]>;
+  keys: { kid: string | null; kty: string; alg: string | null; use: string | null; detail: string }[]; findings: IdentityFinding[];
+}
+export interface IdentitySetup {
+  configured: boolean; issuer: string | null; clientId: string | null; hasClientSecret: boolean; redirectUri: string | null; scopes: string[]; rolesClaims: string[];
+  requiredRole: string | null; allowedUsers: number; adminUsers: number; defaultRole: string; label: string;
+  people: { total: number; sso: number; scim: number; local: number }; notes: IdentityFinding[];
+}
+
+export type RegistryHealth = 'up' | 'down' | 'pending' | 'maintenance' | 'unknown' | 'stale' | 'unmonitored';
+export interface RegistryService {
+  id: string; name: string; description: string; category: string; url: string; host: string; port: number | null; deployment: string; resource: string;
+  monitor: string; owner: string; criticality: 'low' | 'normal' | 'high' | 'critical'; tags: string[]; meta: Record<string, string>;
+  health: RegistryHealth; detail: string; checkedAt: number | null; dependsOn: string[]; dependentCount: number; affectedBy: { id: string; name: string; depth: number }[];
+}
+export interface RegistryImpact {
+  service: { id: string; name: string; health: RegistryHealth; detail: string };
+  wouldAffect: { id: string; name: string; depth: number; criticality: string; health: RegistryHealth }[];
+  dependsOn: { id: string; name: string; depth: number; criticality: string; health: RegistryHealth }[];
+}

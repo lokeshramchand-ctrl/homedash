@@ -1,6 +1,6 @@
 import type {
   Guest, GuestAction, GrafanaDashboard, KumaIncident, KumaMonitor, NginxSite, Overview, Task,
-  ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, GuestStatusDetail, LogLine, NodeInfo, MonitoringSnapshot, NotifyInfo, NotifySettings, NtfyInbox, PveTask, RrdPoint, Service, Snapshot, Timeframe,
+  ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, GuestStatusDetail, LogLine, NodeInfo, MonitoringSnapshot, NotifyInfo, NotifySettings, NtfyInbox, PveTask, RegistryService, RrdPoint, Service, Snapshot, Timeframe,
 } from './types';
 
 export class ApiError extends Error {
@@ -85,6 +85,7 @@ export const api = {
   diagnostics: (since: string) => get<Diagnostics>(`/diagnostics?since=${since}`),
   notify: () => get<NotifyInfo>('/notify'),
   monitoring: () => get<MonitoringSnapshot>('/monitoring'),
+  registry: () => get<{ services: RegistryService[]; checkedAt: number }>('/registry'),
   ntfyInbox: () => get<NtfyInbox>('/ntfy/inbox'),
   notifySettings: (s: Partial<NotifySettings>) => post<NotifySettings>('/notify/settings', s),
   notifyTest: () => post<{ ok: true }>('/notify/test'),

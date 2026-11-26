@@ -109,6 +109,10 @@ These fill in the custom HTTP source for you; you give an address and a key. Eac
 | Uptime Robot | Monitors: up, seems down (warning), down | API v2 only; v3 is not covered |
 | Netdata | Raised alarms | Uses the classic alarms endpoint, which Netdata marks deprecated |
 | Checkmk | Services that are not OK | Checkmk 2.3.0p31, 2.4 and 2.5; the endpoint is removed in 3.0 |
+| OPNsense | Gateways: online, delayed or lossy, offline | Needs a user with only the gateway status privilege and an API key; field names follow the API reference and are not confirmed on a live firewall |
+| Grafana Loki (alerting rules) | Firing alerts from the Loki ruler | Only when Loki runs its ruler; optional tenant header |
+| Grafana Loki (is it up) | `/ready` answers ready | No key |
+| authentik, Keycloak, Authelia (is it up) | Health endpoint answers | Keycloak: the management port. Use the Identity page to read the OIDC configuration |
 
 ### Custom HTTP source
 

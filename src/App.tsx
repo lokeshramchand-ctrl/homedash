@@ -26,6 +26,8 @@ import Nginx from './pages/Nginx';
 import Overview from './pages/Overview';
 import { TwoStepGate, TwoStepSheet } from './components/TwoStep';
 import Access from './pages/Access';
+import Identity from './pages/Identity';
+import Registry from './pages/Registry';
 import Nodes from './pages/Nodes';
 import { ClusterPicker } from './components/Cluster';
 import { select, selectedCluster, selectedNode } from './selection';
@@ -309,6 +311,8 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {current.id === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
             {current.id === 'logs' && <Logs />}
             {current.id === 'notifications' && <Notifications role={role} />}
+            {current.id === 'registry' && <Registry role={role} />}
+            {current.id === 'identity' && <Identity />}
             {current.id === 'access' && <Access role={role} user={user} />}
             {current.id === 'crowdsec' && <Crowdsec />}
             {current.id === 'data' && <Data parts={parts.slice(1)} />}

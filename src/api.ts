@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaAlertsInfo, GrafanaPanel, MonitoringSnapshot, MonSources, NtfyInbox, SourceKind, SourceTemplate, UsageItem, KumaIncident, KumaMonitor,
+  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaAlertsInfo, GrafanaPanel, MonitoringSnapshot, IdentitySetup, IdentityInspection, IdentityFinding, RegistryService, RegistryImpact, MonSources, NtfyInbox, SourceKind, SourceTemplate, UsageItem, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -214,6 +214,15 @@ export const api = {
   usageCount: (item: string) => post<{ counted: boolean }>('/usage', { item }).catch(() => ({ counted: false })),
   usageReset: () => del<{ removed: number }>('/usage'),
   monitoring: () => get<MonitoringSnapshot>('/monitoring'),
+  registry: () => get<{ services: RegistryService[]; edges: { from: string; to: string; note: string }[]; checkedAt: number }>('/registry'),
+  registryImpact: (id: string) => get<RegistryImpact>(`/registry/${encodeURIComponent(id)}/impact`),
+  registryMonitors: () => get<{ value: string; label: string; status: string }[]>('/admin/registry/monitors'),
+  registrySave: (id: string | null, b: Record<string, unknown>) => (id ? put<{ id: string }>(`/admin/registry/${encodeURIComponent(id)}`, b) : post<{ id: string }>('/admin/registry', b)),
+  registryDelete: (id: string) => del<{ ok: boolean; hadDependents: number }>(`/admin/registry/${encodeURIComponent(id)}`),
+  registryAddDep: (id: string, dependsOn: string) => post<{ ok: boolean }>(`/admin/registry/${encodeURIComponent(id)}/deps`, { dependsOn }),
+  registryRemoveDep: (id: string, dep: string) => del<{ ok: boolean }>(`/admin/registry/${encodeURIComponent(id)}/deps/${encodeURIComponent(dep)}`),
+  identity: () => get<{ setup: IdentitySetup; inspection: IdentityInspection | null; comparison: IdentityFinding[]; error: string | null }>('/admin/identity'),
+  identityInspect: (issuer: string, insecure_tls: boolean) => post<{ inspection: IdentityInspection; comparison: IdentityFinding[] }>('/admin/identity/inspect', { issuer, insecure_tls }),
   monitoringCatalog: () => get<{ kinds: SourceKind[]; templates: SourceTemplate[]; canEdit: boolean }>('/monitoring/catalog'),
   monitoringSources: () => get<MonSources>('/monitoring/sources'),
   testMonitoringSource: (b: unknown) => post<{ ok: boolean; message: string }>('/monitoring/sources/test', b),

@@ -213,9 +213,57 @@ export const SOURCE_TEMPLATES: SourceTemplate[] = [
       parse: 'json_alerts', items_path: 'value', name_path: 'title', level_path: 'extensions.state', level_map: '2=error, 3=warn, 1=warn', summary_path: 'extensions.plugin_output', key_path: 'id',
     },
   },
+  {
+    id: 'opnsense', label: 'OPNsense', summary: 'Gateways: online, delayed or lossy, offline.',
+    hint: 'In OPNsense create a user with only the "Routes: Gateway status" privilege and generate an API key for it (System, Access, Users). Give the key as the user name and the secret as the password. Use "Accept a self-signed certificate" under Advanced on the firewall if its web page uses its own certificate.',
+    verified: 'OPNsense API reference (routes/gateway/status). The field names come from the reference and are not confirmed on a live firewall; use Test',
+    ask: [ADDRESS('The firewall web address, for example https://192.168.1.1'), { name: 'username', label: 'API key', type: 'text', required: true }, { name: 'secret', label: 'API secret', type: 'secret', required: true }, { name: 'insecure_tls', label: 'Accept a self-signed certificate', type: 'bool' }],
+    urlSuffix: '/api/routes/gateway/status',
+    fixed: { method: 'GET', auth: 'basic', parse: 'json_checks', items_path: 'items', name_path: 'name', status_path: 'status_translated', status_map: 'online=up, offline=down, packetloss=pending, latency=pending, latency and packetloss=pending, pending=unknown', detail_path: 'delay' },
+  },
+  {
+    id: 'loki-alerts', label: 'Grafana Loki (alerting rules)', summary: 'Log-based alerts that are firing in the Loki ruler.',
+    hint: 'Only useful when Loki runs its ruler. Loki has no login of its own; if a proxy in front of it needs a tenant, add the X-Scope-OrgID header under Extra headers. The ruler answers in the same shape as Prometheus.',
+    verified: 'Grafana Loki HTTP API reference (Ruler: GET /prometheus/api/v1/alerts)',
+    ask: [ADDRESS('For example http://192.168.1.13:3100'), { name: 'extra_headers', label: 'Extra headers', type: 'textarea', hint: 'One per line, for example X-Scope-OrgID: tenant1' }],
+    urlSuffix: '/prometheus/api/v1/alerts',
+    fixed: { method: 'GET', auth: 'none', parse: 'json_alerts', items_path: 'data.alerts', name_path: 'labels.alertname', status_path: 'state', alert_values: 'firing', level_path: 'labels.severity', level_map: 'critical=error, error=error, warning=warn', summary_path: 'annotations.summary', since_path: 'activeAt' },
+  },
+  {
+    id: 'loki-ready', label: 'Grafana Loki (is it up)', summary: 'Whether Loki reports itself ready.',
+    hint: 'Reads /ready, which answers "ready" when Loki can take logs. Needs no key.',
+    verified: 'Grafana Loki HTTP API reference (GET /ready)',
+    ask: [ADDRESS('For example http://192.168.1.13:3100')],
+    urlSuffix: '/ready',
+    fixed: { method: 'GET', auth: 'none', parse: 'status', ok_codes: '200', must_contain: 'ready' },
+  },
+  {
+    id: 'authentik', label: 'authentik (is it up)', summary: 'Whether the authentik server answers its health check.',
+    hint: 'Reads the readiness page, which needs no key and answers with an empty success. It confirms the identity provider can sign people in; use Identity to read its OIDC configuration.',
+    verified: 'authentik documentation, monitoring (the /-/health/ready/ endpoint)',
+    ask: [ADDRESS('For example https://auth.example.lan'), { name: 'insecure_tls', label: 'Accept a self-signed certificate', type: 'bool' }],
+    urlSuffix: '/-/health/ready/',
+    fixed: { method: 'GET', auth: 'none', parse: 'status', ok_codes: '200-299' },
+  },
+  {
+    id: 'keycloak', label: 'Keycloak (is it up)', summary: 'Whether Keycloak reports itself ready.',
+    hint: 'Keycloak serves /health/ready on its management port (9000 by default in current versions) once health is enabled. Give that address, not the sign-in address.',
+    verified: 'Keycloak documentation, health checks (/health/ready on the management interface)',
+    ask: [ADDRESS('For example http://192.168.1.16:9000'), { name: 'insecure_tls', label: 'Accept a self-signed certificate', type: 'bool' }],
+    urlSuffix: '/health/ready',
+    fixed: { method: 'GET', auth: 'none', parse: 'status', ok_codes: '200' },
+  },
+  {
+    id: 'authelia', label: 'Authelia (is it up)', summary: 'Whether Authelia answers its health check.',
+    hint: 'Reads /api/health, which needs no key.',
+    verified: 'Authelia documentation, health check endpoint (/api/health)',
+    ask: [ADDRESS('For example https://auth.example.lan'), { name: 'insecure_tls', label: 'Accept a self-signed certificate', type: 'bool' }],
+    urlSuffix: '/api/health',
+    fixed: { method: 'GET', auth: 'none', parse: 'status', ok_codes: '200' },
+  },
 ];
 
-export const templateSpec = (id: string): SourceTemplate | undefined => SOURCE_TEMPLATES.find((t) => t.id === id);
+export const templateSpec =(id: string): SourceTemplate | undefined => SOURCE_TEMPLATES.find((t) => t.id === id);
 
 /** Pure: a form body for a template to a body for the custom HTTP source. What the template fixes cannot be overridden. */
 export function applyTemplate(t: SourceTemplate, body: Record<string, unknown>): Record<string, unknown> {

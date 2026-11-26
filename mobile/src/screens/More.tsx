@@ -6,6 +6,7 @@ import Diagnostics from './Diagnostics';
 import Gpu from './Gpu';
 import Monitoring from './Monitoring';
 import Notifications from './Notifications';
+import Registry from './Registry';
 import Sites from './Sites';
 import Tasks from './Tasks';
 import { useSession } from '../session';
@@ -18,13 +19,14 @@ export default function More() {
   if (view === 'sites') return <Sites onBack={back} />;
   if (view === 'tasks') return <Tasks onBack={back} />;
   if (view === 'monitoring') return <Monitoring onBack={back} />;
+  if (view === 'registry') return <Registry onBack={back} />;
   if (view === 'notifications') return <Notifications onBack={back} />;
   if (view === 'gpu') return <Gpu onBack={back} />;
   if (view === 'diagnostics') return <Diagnostics onBack={back} />;
   return <Menu go={setView} />;
 }
 
-type Sub = 'sites' | 'tasks' | 'monitoring' | 'notifications' | 'gpu' | 'diagnostics';
+type Sub = 'sites' | 'tasks' | 'monitoring' | 'registry' | 'notifications' | 'gpu' | 'diagnostics';
 
 function Menu({ go }: { go: (v: Sub) => void }) {
   const { user, serverUrl, signOut } = useSession();
@@ -45,6 +47,7 @@ function Menu({ go }: { go: (v: Sub) => void }) {
         <ListRow title="Task log" sub="Proxmox tasks and their logs" onPress={() => go('tasks')} />
         <ListRow title="Nginx sites" sub="Sites enabled on the proxy" onPress={() => go('sites')} />
         <ListRow title="Monitoring" sub="Everything connected, in one list" onPress={() => go('monitoring')} />
+        <ListRow title="Services" sub="Health and what depends on what" onPress={() => go('registry')} />
         <ListRow title="Notifications" sub="ntfy push alerts and rules" onPress={() => go('notifications')} />
       </Card>
       <SectionTitle>Account</SectionTitle>

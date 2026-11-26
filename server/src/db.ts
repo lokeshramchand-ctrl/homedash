@@ -129,6 +129,16 @@ CREATE TABLE IF NOT EXISTS alert_routes (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, categories TEXT, min_level TEXT NOT NULL, contains TEXT,
   channels TEXT NOT NULL, days TEXT, tod_start TEXT, tod_minutes INTEGER, position INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS registry_services (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL DEFAULT '', port INTEGER, deployment TEXT NOT NULL DEFAULT '', resource TEXT NOT NULL DEFAULT '',
+  monitor TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', criticality TEXT NOT NULL DEFAULT 'normal', tags TEXT NOT NULL DEFAULT '[]',
+  meta TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, created_by TEXT
+);
+CREATE TABLE IF NOT EXISTS registry_deps (
+  service_id TEXT NOT NULL REFERENCES registry_services(id) ON DELETE CASCADE, depends_on TEXT NOT NULL REFERENCES registry_services(id) ON DELETE CASCADE,
+  note TEXT NOT NULL DEFAULT '', PRIMARY KEY (service_id, depends_on)
+);
 CREATE TABLE IF NOT EXISTS oidc_states (id TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL);
 `;
 

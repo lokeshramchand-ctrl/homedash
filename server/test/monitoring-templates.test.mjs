@@ -37,6 +37,17 @@ before(async () => {
       if (req.url === '/mysite/check_mk/api/1.0/domain-types/service/collections/all') return res.end(JSON.stringify({ id: 'service', domainType: 'service', value: [
         { domainType: 'service', id: 'web1:Disk /', title: 'Disk / on web1', extensions: { host_name: 'web1', description: 'Disk /', state: 2, plugin_output: 'CRIT - 96% used' } },
         { domainType: 'service', id: 'db1:Backup age', title: 'Backup age on db1', extensions: { host_name: 'db1', description: 'Backup age', state: 1, plugin_output: 'WARN - 31 h' } }] }));
+      if (req.url === '/api/routes/gateway/status') return res.end(JSON.stringify({ dirty: false, status: 'ok', items: [
+        { name: 'WAN_DHCP', address: '203.0.113.1', status: 'none', status_translated: 'Online', delay: '5.1 ms', loss: '0.0 %' },
+        { name: 'WAN2', address: '198.51.100.1', status: 'down', status_translated: 'Offline', delay: '~', loss: '100.0 %' },
+        { name: 'WAN3', status: 'loss', status_translated: 'Packetloss', delay: '9 ms' }] }));
+      if (req.url === '/prometheus/api/v1/alerts') return res.end(JSON.stringify({ status: 'success', data: { alerts: [
+        { labels: { alertname: 'ErrorBurst', severity: 'critical' }, annotations: { summary: 'Too many errors in nginx' }, state: 'firing', activeAt: '2026-11-26T10:00:00Z', value: '12' },
+        { labels: { alertname: 'SlowLogs', severity: 'warning' }, annotations: {}, state: 'pending', activeAt: '2026-11-26T10:05:00Z' }] } }));
+      if (req.url === '/ready') { res.setHeader('content-type', 'text/plain'); return res.end('ready'); }
+      if (req.url === '/-/health/ready/') { res.statusCode = 204; return res.end(); }
+      if (req.url === '/health/ready') return res.end(JSON.stringify({ status: 'UP', checks: [] }));
+      if (req.url === '/api/health') return res.end(JSON.stringify({ status: 'OK' }));
       res.statusCode = 404; res.end('{}');
     });
   });
@@ -47,7 +58,7 @@ after(() => server.close());
 const last = (path) => seen.filter((s) => s.url === path).pop();
 
 test('every template is well formed: it fixes a custom-HTTP reading and asks only for what it needs', () => {
-  assert.deepEqual(SOURCE_TEMPLATES.map((t) => t.id), ['healthchecks', 'zabbix', 'uptimerobot', 'netdata', 'checkmk']);
+  assert.deepEqual(SOURCE_TEMPLATES.map((t) => t.id), ['healthchecks', 'zabbix', 'uptimerobot', 'netdata', 'checkmk', 'opnsense', 'loki-alerts', 'loki-ready', 'authentik', 'keycloak', 'authelia']);
   for (const t of SOURCE_TEMPLATES) {
     assert.ok(t.label && t.summary && t.hint && t.verified, `${t.id} says what it was checked against`);
     assert.ok(['json_checks', 'json_alerts', 'prometheus', 'status'].includes(t.fixed.parse), t.id);
@@ -123,4 +134,26 @@ test('a wrong key gives the usual plain refusal and never shows the key', async 
   try {
     await assert.rejects(run('healthchecks', { url: `http://127.0.0.1:${strict.address().port}` }, 'SECRET-KEY-123'), (e) => /refused the credentials \(HTTP 401\)/.test(e.message) && !/SECRET-KEY-123/.test(e.message));
   } finally { strict.close(); }
+});
+
+test('OPNsense: basic auth with the key and secret, gateway states become up, down and warning', async () => {
+  const r = await run('opnsense', { url: base, username: 'APIKEY' }, 'APISECRET');
+  assert.equal(last('/api/routes/gateway/status').headers.authorization, `Basic ${Buffer.from('APIKEY:APISECRET').toString('base64')}`);
+  assert.deepEqual(r.checks.map((c) => [c.name, c.status]), [['WAN_DHCP', 'up'], ['WAN2', 'down'], ['WAN3', 'pending']]);
+});
+
+test('Loki ruler: only firing alerts count, severity maps to a level, and extra headers (tenant) are sent', async () => {
+  const r = await run('loki-alerts', { url: base, extra_headers: 'X-Scope-OrgID: tenant1' }, '');
+  assert.equal(last('/prometheus/api/v1/alerts').headers['x-scope-orgid'], 'tenant1');
+  assert.deepEqual(r.alerts.map((a) => [a.name, a.level, a.summary]), [['ErrorBurst', 'error', 'Too many errors in nginx']], 'the pending one is not raised');
+});
+
+test('Loki, authentik, Keycloak and Authelia: reachability checks that fail on a wrong answer', async () => {
+  for (const [id, path] of [['loki-ready', '/ready'], ['authentik', '/-/health/ready/'], ['keycloak', '/health/ready'], ['authelia', '/api/health']]) {
+    const up = await run(id, { url: base }, '');
+    assert.equal(up.checks[0].status, 'up', id);
+    assert.ok(last(path), id);
+    const down = await run(id, { url: `${base}/nothing-here` }, '');
+    assert.equal(down.checks[0].status, 'down', `${id}: a 404 is down`);
+  }
 });

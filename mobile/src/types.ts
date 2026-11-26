@@ -154,3 +154,8 @@ export interface WindowsReport {
   metrics: { samples: number; cpu: Stat | null; mem: Stat | null; netIn: Stat | null; netOut: Stat | null; diskRead: Stat | null; diskWrite: Stat | null; cpuSaturatedPct: number; idleSamples: number };
   metricsTimeframe: Timeframe; counts: { lines: number; problems: number }; recurring: Recurring[]; lines: LogLine[];
 }
+
+export interface RegistryService {
+  id: string; name: string; category: string; criticality: 'low' | 'normal' | 'high' | 'critical'; health: string; detail: string;
+  dependentCount: number; affectedBy: { id: string; name: string; depth: number }[];
+}
