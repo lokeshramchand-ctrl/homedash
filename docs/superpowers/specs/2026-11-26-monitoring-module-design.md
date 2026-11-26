@@ -169,6 +169,14 @@ Rows in `monitoring_hook_state` older than the source's TTL are purged hourly by
 3. **Usage and "Your most used".** Section 10.
 4. **More providers.** Zabbix, Netdata, Checkmk, Beszel, Healthchecks and others, chosen from researched popularity and verified against each tool's own docs, then the same pattern for Logs.
 
+## 12a. Changes decided in the Phase 2 plan
+
+- `prometheus` and `alertmanager` are separate provider kinds (different endpoints and auth).
+- `monitoring_hook_state` gains a `type` column (`check` or `alert`).
+- Prometheus documents only basic auth and client certificates for its own server; the bearer-token field is for servers behind a reverse proxy.
+- Pushed webhook requests are logged with `?token=` masked.
+- Formats verified from primary sources: `docs/research/monitoring-provider-formats.md`.
+
 ## 13. Risks and open questions
 
 - **Unverified external formats.** Prometheus/Alertmanager endpoints and the Alertmanager/Grafana webhook payloads are from memory of their documentation and must be re-read from the official docs at the start of Phase 2. The Grafana rules route is an internal source route, not a documented contract (see `docs/research/one-stop-dashboard-gaps.md`).
