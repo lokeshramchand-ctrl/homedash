@@ -125,6 +125,9 @@ function clusterConfigs(): ClusterCfg[] {
       featured_vmid: Number(env('FEATURED_VMID', '0')) || 0, conflicts: conflicts(), host_power: bool('HOST_POWER_ENABLED', false),
     });
   }
+  // Nothing configured: keep one empty "default" cluster, so code that always has a current cluster (every request does)
+  // still works and the answer is "Proxmox is not configured", not a failed request. It is not ready, so pveConfigured() stays false.
+  if (list.length === 0) list.push({ id: 'default', name: 'Proxmox' });
   const seen = new Set<string>();
   return list.map((c, i) => {
     const name = String(c.name ?? c.id ?? `cluster-${i + 1}`).trim().slice(0, 40) || `cluster-${i + 1}`;
