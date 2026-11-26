@@ -1646,3 +1646,8 @@ body.wall .svc-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr
 .copied-note { font-size: 12px; font-weight: 600; color: var(--text); }
 /* Touch targets: links and small buttons get a taller hit area on phones (audit FUA-010). */
 @media (pointer: coarse) { a.link, button.link { min-height: 32px; padding-block: 4px; } .icon-btn.sm { min-width: 32px; min-height: 32px; } }
+
+/* Your most used (Overview) */
+.mu-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.mu-item { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: inherit; text-decoration: none; }
+.mu-item:hover, .mu-item:focus-visible { border-color: var(--text, currentColor); }

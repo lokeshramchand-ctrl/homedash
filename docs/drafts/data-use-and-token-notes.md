@@ -8,6 +8,8 @@ Status: draft, not wired into the UI. Closes audit findings FUA-004 (no licence/
 
 **Where your data lives.** Everything homedash stores is in one SQLite file on the machine it runs on (`DB_PATH`, default `./data/homedash.db`): users, sessions, the audit log, settings and uptime history. Optional self-backups go to `BACKUP_DIR` on the same machine. [source: server/.env.example, server/src/db.ts]
 
+**Your most used.** For each person, homedash keeps a small counter of the pages and service tiles they open (an id and a fading score, for example `page:guests`; never addresses, names or content). It is used only to order that person's own shortcuts, only they can read it, and "Clear my history" on Overview deletes it. [source: server/src/usage.ts]
+
 **What leaves your network.** homedash only talks to the services you configure (Proxmox, Grafana, Loki, Uptime Kuma, ntfy and the other alert channels you switch on). It has no analytics or telemetry (no such code found in `server/src`). One optional exception: if `UPDATE_CHECK` is set, it asks `api.github.com` for the latest release number. It is off by default. [source: server/src/updates.ts lines 1-2 and 8]
 
 **How secrets are kept.**

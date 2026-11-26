@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api';
 import { Badge, Icon, Modal, Spinner } from './ui';
 import { CodeBlock } from './ui-more';
@@ -42,6 +42,10 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
   const [created, setCreated] = useState<{ path: string; secret: string } | null>(null);
   const set = (k: string, v: string) => { setVals((x) => ({ ...x, [k]: v })); setRes(null); setErr(''); setCanForce(false); };
   const saved = useMemo(() => new Set(source?.secretsSet ?? []), [source]);
+  // The kinds this person has connected before come first (their own history; the default order breaks ties).
+  const [rank, setRank] = useState<Record<string, number>>({});
+  useEffect(() => { void api.usageTop(20).then((r) => setRank(Object.fromEntries(r.items.filter((i) => i.item.startsWith('kind:')).map((i) => [i.item.slice(5), i.score])))).catch(() => undefined); }, []);
+  const ordered = useMemo(() => [...kinds].sort((a, b) => (rank[b.kind] ?? 0) - (rank[a.kind] ?? 0)), [kinds, rank]);
 
   const body = (force = false) => ({ ...vals, kind: kindId, id: source?.id, name: name.trim() || kind?.label, enabled, intervalS, ttlHours, ...(force ? { force: true } : {}) });
   const missing = !!kind && kind.fields.some((f) => f.required && !(vals[f.name] ?? '').trim() && !(f.type === 'secret' && saved.has(f.name)));
@@ -57,6 +61,7 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
       if (editing) { await api.editMonitoringSource(source!.id, body(force)); toast.success(`${name || kind?.label} saved`); onSaved(); onClose(); }
       else {
         const r = await api.addMonitoringSource(body(force));
+        void api.usageCount(`kind:${kindId}`);
         onSaved();
         if (r.secret && r.hookPath) setCreated({ path: r.hookPath, secret: r.secret }); else { toast.success(`${name || kind?.label} connected`); onClose(); }
       }
@@ -80,7 +85,7 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
       <Modal key="pick" title="Connect a source" wide onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
         <p className="muted small">homedash can read these tools, or be told about problems by any tool that can send a web request.</p>
         <div className="kind-grid">
-          {kinds.map((k) => (
+          {ordered.map((k) => (
             <button key={k.kind} className="kind-pick" onClick={() => { setKindId(k.kind); setName(k.label); }}>
               <Logo kind={k.kind} label={k.label} /><span>{k.label}<br /><small className="muted">{k.summary}</small></span>
             </button>

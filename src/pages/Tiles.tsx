@@ -67,7 +67,7 @@ function TileCard({ t, compact, fav, busy, drag, onFav, onRefresh, onEdit, onDel
     const inner = <><Logo kind={t.kind} label={label} size={40} /><span className="lau-name">{t.name}</span><span className={`dot dot-${t.state}`} title={LABEL[t.state]} /></>;
     return (
       <div className={`lau ${drag.over ? 'drag-over' : ''}`} {...dragProps}>
-        {t.link ? <a href={t.link} target="_blank" rel="noopener noreferrer" className="lau-link">{inner}</a> : <div className="lau-link">{inner}</div>}
+        {t.link ? <a href={t.link} target="_blank" rel="noopener noreferrer" className="lau-link" onClick={() => void api.usageCount(`tile:${t.id}`)}>{inner}</a> : <div className="lau-link">{inner}</div>}
       </div>
     );
   }
@@ -77,7 +77,7 @@ function TileCard({ t, compact, fav, busy, drag, onFav, onRefresh, onEdit, onDel
         <div className="svc-head">
           <Logo kind={t.kind} label={label} />
           <div className="svc-title">
-            <b>{t.link ? <a className="link" href={t.link} target="_blank" rel="noopener noreferrer">{t.name}</a> : t.name}</b>
+            <b>{t.link ? <a className="link" href={t.link} target="_blank" rel="noopener noreferrer" onClick={() => void api.usageCount(`tile:${t.id}`)}>{t.name}</a> : t.name}</b>
             <small className="muted">{label}{t.summary && t.state !== 'down' ? ` · ${t.summary}` : ''}</small>
           </div>
           <button className={`icon-btn fav ${fav ? 'on' : ''}`} onClick={onFav} aria-pressed={fav} aria-label={fav ? `Unpin ${t.name}` : `Pin ${t.name}`} title={fav ? 'Unpin' : 'Pin to the top'}><Icon name="star" size={15} /></button>

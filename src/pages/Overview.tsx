@@ -1,5 +1,6 @@
 import { api } from '../api';
 import { BrandSwirl } from '../components/Brand';
+import { MostUsed } from '../components/MostUsed';
 import { InView, Reveal, RevealWords } from '../components/Reveal';
 import { AreaCard } from '../components/AreaCard';
 import { Async, Badge, Card, CardHead, ErrorState, Icon, Meter, PageHeader, Skeleton } from '../components/ui';
@@ -148,6 +149,8 @@ export default function Overview() {
           </div>
         )}
       </Card>
+
+      <MostUsed />
 
       <div className="grid-3">
         <AreaCard icon="cpu" title="CPU Usage" notConnected={noMetrics} sub="Processor utilization over time" color="var(--blue)" format={pct}
