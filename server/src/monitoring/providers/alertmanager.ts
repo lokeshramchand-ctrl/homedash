@@ -27,7 +27,7 @@ export function parseAmAlerts(body: unknown): MonAlert[] {
 export const alertmanagerProvider = (s: LoadedSource): Provider => ({
   kind: 'alertmanager', label: s.name, raisesChecks: true, configured: () => !!s.config.url,
   async poll(): Promise<Polled> {
-    const body = await getJson(`${trimUrl(s.config.url)}/api/v2/alerts?active=true&silenced=false&inhibited=false`, { username: s.config.username, password: s.secrets.password, bearer: s.secrets.bearer_token });
+    const body = await getJson(`${trimUrl(s.config.url)}/api/v2/alerts?active=true&silenced=false&inhibited=false`, { username: s.config.username, password: s.secrets.password, bearer: s.secrets.bearer_token }, 10_000, s.config.insecure_tls === 'true');
     if (!Array.isArray(body)) throw new Error('The server did not answer like Alertmanager (expected a list of alerts)');
     return { checks: [], alerts: parseAmAlerts(body) };
   },

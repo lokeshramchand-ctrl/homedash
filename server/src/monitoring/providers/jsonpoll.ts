@@ -28,6 +28,12 @@ const DEFAULTS: Record<string, Status> = {
   maintenance: 'maintenance', paused: 'maintenance',
 };
 
+/** Pure: the status word an item carries to a status, using the map first and common words second. */
+export const statusWord = (raw: unknown, map: Record<string, Status>): Status => {
+  const w = String(raw ?? '').trim().toLowerCase();
+  return map[w] ?? DEFAULTS[w] ?? 'unknown';
+};
+
 /** Pure: "ok=up, fail=down" to a lookup table. Entries that do not name a known status are dropped. */
 export function parseStatusMap(text: string | undefined): Record<string, Status> {
   const out: Record<string, Status> = {};

@@ -10,13 +10,19 @@ import { logEvent } from '../events.js';
 import { parseGrafanaRules } from '../grafanaalerts.js';
 import { parseMetrics } from '../kuma.js';
 import { sealKey } from '../tilestore.js';
-import { SOURCE_KINDS, kindSpec } from './catalog.js';
+import { SOURCE_KINDS, fieldVisible, kindSpec } from './catalog.js';
+import { mapPromText } from './prometheus-text.js';
 import { getJson, trimUrl } from './providers/http.js';
+import { parseTargets } from './providers/probe.js';
+import { buildRequest } from './request.js';
+import type { HttpConfig } from './request.js';
 import { BOOT, isShadowed } from './runtime.js';
 import { FACTORIES, monitoringEngine, reloadSources } from './sources.js';
 import { createSource, deleteSource, getSource, listSources, rotateHookSecret, updateSource } from './store.js';
 import type { LoadedSource, SourceInput } from './store.js';
 
+/** Kinds where the same address twice is almost certainly a mistake. Custom sources may share an address with different queries. */
+const DEDUPE = new Set(['kuma', 'grafana', 'prometheus', 'alertmanager']);
 const bad = (m: string) => new HttpError(400, 'BAD_REQUEST', m);
 const str = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n);
 const clamp = (v: unknown, lo: number, hi: number, d: number) => Math.min(Math.max(Number(v) || d, lo), hi);
@@ -33,26 +39,49 @@ export async function buildInput(kind: string, body: Record<string, unknown>, pr
   const secrets: Record<string, string> = {};
   const sameAddress = (u: string) => listSources().find((s) => s.kind === kind && s.id !== prev?.id && trimUrl(s.config.url).toLowerCase() === u.toLowerCase());
   for (const f of spec.fields) {
-    const raw = str(body[f.name], f.type === 'secret' ? 500 : 300);
+    // A field that depends on another choice (for example the Prometheus rule fields) is read only while it applies.
+    if (!fieldVisible(f, { ...body, ...config } as Record<string, string>, spec)) continue;
     if (f.type === 'secret') {
+      const raw = str(body[f.name], 500);
       secrets[f.name] = raw;
       if (f.required && !raw && !prev?.secrets[f.name]) throw bad(`${f.label} is required.`);
       continue;
     }
+    if (f.type === 'bool') { if (body[f.name] === true || body[f.name] === 'true') config[f.name] = 'true'; continue; }
+    if (f.type === 'select') {
+      const v = str(body[f.name], 40) || f.options![0].value;
+      if (!f.options!.some((o) => o.value === v)) throw bad(`${f.label}: "${v.slice(0, 30)}" is not one of the choices.`);
+      config[f.name] = v;
+      continue;
+    }
+    // A text area keeps its line breaks; everything else is a single trimmed line.
+    const raw = f.type === 'textarea' ? String(body[f.name] ?? '').replace(/\r\n/g, '\n').trim().slice(0, 4000) : str(body[f.name], 300);
     const v = f.type === 'url' ? trimUrl(raw) : raw;
     if (f.required && !v) throw bad(`${f.label} is required.`);
     if (f.type === 'url' && v) {
+      // {{secret}} in a custom address is checked after it is filled in, below; here the shape and the destination are.
       if (!/^https?:\/\/[^\s/]+/.test(v)) throw bad(`${f.label} must start with http:// or https://`);
       // Never let this form point the server at link-local or cloud-metadata addresses.
-      await assertDestinationAllowed({ uri: v } as ConnConfig, [], true);
+      await assertDestinationAllowed({ uri: v.replace(/\{\{secret\}\}/g, 'x') } as ConnConfig, [], true);
     }
-    if (f.name === 'url' && v && kind !== 'webhook') {
+    if (f.name === 'url' && v && DEDUPE.has(kind)) {
       const dup = sameAddress(v);
       if (dup) throw bad(`${spec.label} at ${v} is already connected as "${dup.name}".`);
     }
     if (v) config[f.name] = v;
   }
   if (kind === 'jsonpoll' && /^\s*$/.test(config.items_path ?? '')) throw bad('Path to the list is required.');
+  // Things only the whole configuration can say: refuse a request that could not be sent, a list of checks that cannot be read.
+  try {
+    if (kind === 'http') {
+      const secret = secrets.secret || prev?.secrets.secret || '';
+      if (config.parse === 'json_checks' && !config.status_path) throw new Error('Status (inside each item) is required to read checks');
+      buildRequest(config as HttpConfig, secret);
+      if (config.parse === 'prometheus') mapPromText([], config);
+    }
+    if (kind === 'probe' && !parseTargets(config.targets).length) throw new Error('Add at least one check');
+    if (kind === 'webhook' && (config.items_path || config.name_path) && !(config.items_path && config.name_path)) throw new Error('A custom mapping needs both the path to the list and the name path');
+  } catch (e) { throw bad((e as Error).message); }
   return {
     kind, name: str(body.name, 60) || spec.label, config, secrets,
     enabled: body.enabled !== false, intervalS: clamp(body.intervalS ?? body.interval_s, 15, 3600, 60), ttlHours: clamp(body.ttlHours ?? body.ttl_hours, 1, 720, 168),
@@ -80,6 +109,16 @@ export async function testSource(s: LoadedSource): Promise<TestResult> {
     const make = FACTORIES[s.kind];
     if (!make) return { ok: false, message: 'This kind of source cannot be tested yet.' };
     const r = await make(s).poll();
+    if (s.kind === 'probe') {
+      const up = r.checks.filter((c) => c.status === 'up').length;
+      return { ok: true, message: `Looked at ${r.checks.length} thing${r.checks.length === 1 ? '' : 's'}: ${up} fine${r.checks.length - up ? `, ${r.checks.length - up} need attention (${r.checks.filter((c) => c.status !== 'up').slice(0, 2).map((c) => `${c.name}: ${c.detail}`).join('; ')})` : ''}.` };
+    }
+    if (s.kind === 'http') {
+      const n = r.checks.length + r.alerts.length;
+      if (s.config.parse === 'status') return { ok: true, message: `${r.checks[0].status === 'up' ? 'It answers' : 'It does not answer as expected'}: ${r.checks[0].detail}.` };
+      if (!n) return { ok: s.config.parse === 'json_alerts', message: s.config.parse === 'json_alerts' ? 'Read the list: nothing is wrong right now.' : s.config.parse === 'prometheus' ? `No series named "${s.config.metric}" matched. Check the metric name and the label filter.` : 'The list is empty. Check the path to the list, the name and the status paths.' };
+      return { ok: true, message: r.alerts.length ? `Read ${r.alerts.length} problem${r.alerts.length === 1 ? '' : 's'}: ${r.alerts.slice(0, 3).map((a) => a.name).join(', ')}.` : `Read ${r.checks.length} item${r.checks.length === 1 ? '' : 's'}: ${r.checks.slice(0, 3).map((c) => `${c.name} is ${c.status}`).join(', ')}.` };
+    }
     if (s.kind === 'jsonpoll') {
       return r.checks.length ? { ok: true, message: `Read ${r.checks.length} item${r.checks.length === 1 ? '' : 's'}: ${r.checks.slice(0, 3).map((c) => `${c.name} is ${c.status}`).join(', ')}.` }
         : { ok: false, message: 'The list is empty. Check the path to the list, the name and the status paths.' };

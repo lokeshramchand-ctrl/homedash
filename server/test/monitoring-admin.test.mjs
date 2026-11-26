@@ -65,7 +65,7 @@ test('every sources route is administrator-only, while the merged list stays rea
 
 test('the catalog lists the kinds and says whether sources can be saved', async () => {
   const r = await admin.call('GET', '/api/monitoring/catalog');
-  assert.deepEqual(r.body.kinds.map((k) => k.kind), ['kuma', 'grafana', 'prometheus', 'alertmanager', 'jsonpoll', 'webhook']);
+  assert.deepEqual(r.body.kinds.map((k) => k.kind), ['kuma', 'grafana', 'prometheus', 'alertmanager', 'jsonpoll', 'http', 'probe', 'webhook']);
   assert.equal(r.body.canEdit, true);
 });
 

@@ -39,7 +39,7 @@ export function parsePromRules(body: unknown): MonAlert[] {
 export const prometheusProvider = (s: LoadedSource): Provider => ({
   kind: 'prometheus', label: s.name, raisesChecks: true, configured: () => !!s.config.url,
   async poll(): Promise<Polled> {
-    const body = await getJson(`${trimUrl(s.config.url)}/api/v1/rules?type=alert`, { username: s.config.username, password: s.secrets.password, bearer: s.secrets.bearer_token });
+    const body = await getJson(`${trimUrl(s.config.url)}/api/v1/rules?type=alert`, { username: s.config.username, password: s.secrets.password, bearer: s.secrets.bearer_token }, 10_000, s.config.insecure_tls === 'true');
     if ((body as { status?: unknown })?.status !== 'success') throw new Error('The server did not answer like Prometheus (no "status":"success")');
     return { checks: [], alerts: parsePromRules(body) };
   },

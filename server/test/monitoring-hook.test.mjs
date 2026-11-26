@@ -12,8 +12,8 @@ const PW = 'correct-horse-battery';
 // The temp database must be chosen before any build module is imported: config reads DB_PATH once, when it is first loaded.
 const dir = mkdtempSync(join(tmpdir(), 'hd-hook-'));
 Object.assign(process.env, { DB_PATH: join(dir, 'h.db'), SECRETS_KEY: 'k'.repeat(40) });
-const { maskSecretInUrl, parseHookPayload } = await import('../build/monitoring/hook.js');
-let srv, base, hookId, secret, cookie = '', log = '';
+const { maskSecretInUrl, parseHookPayload, parseMappedPayload } = await import('../build/monitoring/hook.js');
+let srv, base, hookId, secret, mappedId, mappedSecret, cookie = '', log = '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const post = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
 const hook = (body, headers = { authorization: `Bearer ${secret}` }, q = '') => post(`/hooks/monitoring/${hookId}${q}`, body, headers);
@@ -34,6 +34,8 @@ before(async () => {
   db.connectDb();
   const made = st.createSource({ kind: 'webhook', name: 'Alertmanager', config: {}, secrets: {}, enabled: true, intervalS: 60, ttlHours: 168 }, 'admin');
   hookId = made.id; secret = made.hookSecret;
+  const mapped = st.createSource({ kind: 'webhook', name: 'Mapped tool', config: { items_path: 'events', name_path: 'service', status_path: 'state', status_map: 'good=up, bad=down', detail_path: 'msg', as: 'check' }, secrets: {}, enabled: true, intervalS: 60, ttlHours: 168 }, 'admin');
+  mappedId = mapped.id; mappedSecret = mapped.hookSecret;
   db.closeDb();
   srv = spawn('node', [...NODE, 'build/index.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
@@ -81,6 +83,17 @@ test('a token in a URL is hidden for the log', () => {
   assert.equal(maskSecretInUrl('/api/x'), '/api/x');
 });
 
+test('any JSON can be mapped: checks by status word, alerts that clear, a single object, and unreadable payloads', () => {
+  const chk = parseMappedPayload({ events: [{ service: 'db', state: 'bad', msg: 'no route' }, { service: 'web', state: 'good' }, { service: 'x', state: 'weird' }, { state: 'bad' }] }, { items_path: 'events', name_path: 'service', status_path: 'state', status_map: 'good=up, bad=down', detail_path: 'msg' });
+  assert.deepEqual(chk.items.map((i) => [i.name, i.type, i.status, i.level, i.detail]), [['db', 'check', 'down', 'error', 'no route'], ['web', 'check', 'up', 'info', '']]);
+  assert.equal(chk.ignored, 2, 'an unknown status word and a nameless item are ignored');
+  const al = parseMappedPayload({ id: 'a1', title: 'Disk', sev: 'critical', phase: 'open' }, { name_path: 'title', key_path: 'id', status_path: 'phase', alert_values: 'open, firing', level_path: 'sev', as: 'alert' });
+  assert.deepEqual([al.items[0].key, al.items[0].status, al.items[0].level], ['a1', 'firing', 'error']);
+  assert.equal(parseMappedPayload({ id: 'a1', title: 'Disk', phase: 'closed' }, { name_path: 'title', key_path: 'id', status_path: 'phase', alert_values: 'open', as: 'alert' }).items[0].status, 'resolved');
+  assert.match(parseMappedPayload({ a: 1 }, { items_path: 'events', name_path: 'n' }).error, /does not lead to a list/);
+  assert.match(parseMappedPayload({ events: [{ n: 'x', s: 'zzz' }] }, { items_path: 'events', name_path: 'n', status_path: 's' }).error, /Nothing in what was sent/);
+});
+
 // ---- over HTTP ----
 test('a bearer token works; the state shows up in the merged list as a down check', async () => {
   const r = await hook({ name: 'nightly-backup', status: 'down', message: 'exit code 2' });
@@ -119,6 +132,16 @@ test('bad requests: unknown shape and broken JSON are 400, an oversized body is 
   assert.equal((await hook({ hello: 'world' })).status, 400);
   assert.equal((await hook('{not json')).status, 400);
   assert.equal((await hook({ name: 'x', status: 'down', message: 'm'.repeat(70_000) })).status, 413);
+});
+
+test('a source with a mapping reads a payload no built-in shape would understand', async () => {
+  const send = (body, token = mappedSecret) => post(`/hooks/monitoring/${mappedId}`, body, { authorization: `Bearer ${token}` });
+  assert.equal((await send({ events: [{ service: 'billing-api', state: 'bad', msg: 'queue stuck' }] })).status, 200);
+  const m = await until(async () => { const x = await merged(); return x.checks.find((c) => c.name === 'billing-api') ? x : null; });
+  const c = m.checks.find((x) => x.name === 'billing-api');
+  assert.deepEqual([c.status, c.detail, c.source], ['down', 'queue stuck', mappedId]);
+  assert.equal((await send({ hello: 'world' })).status, 400, 'a payload that does not fit the mapping is a clear 400');
+  assert.equal((await send({ events: [] }, 'wrong')).status, 401);
 });
 
 // Keep the limiter tests last: they block this client address for a minute.

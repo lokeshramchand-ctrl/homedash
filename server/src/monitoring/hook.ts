@@ -5,6 +5,7 @@
 // records state; it never runs anything and never forwards the data anywhere.
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { getPath, parseLevelMap, parseStatusMap, statusWord, toMillis } from './providers/jsonpoll.js';
 import { deleteHookState, upsertHookState, verifyHookToken } from './store.js';
 
 const MAX_ITEMS = 200;
@@ -94,6 +95,43 @@ export function parseHookPayload(body: unknown): Parsed {
   return { items, ignored };
 }
 
+/** The mapping an administrator can set on a webhook source for a payload homedash does not know. */
+export interface PushMapping { items_path?: string; name_path?: string; status_path?: string; status_map?: string; detail_path?: string; key_path?: string; as?: string; alert_values?: string; level_path?: string; level_map?: string; since_path?: string }
+
+/**
+ * Pure: any JSON payload to items, using the paths the administrator chose. As checks, each item is up, down or pending by its
+ * status word. As alerts, an item is firing unless a status filter says otherwise, in which case it clears the alert with that key.
+ */
+export function parseMappedPayload(body: unknown, m: PushMapping): Parsed {
+  const at = getPath(body, m.items_path || '$');
+  const list = Array.isArray(at) ? at : at && typeof at === 'object' ? [at] : null;
+  if (!list) return { error: `"${String(m.items_path).slice(0, 60)}" does not lead to a list or an object in what was sent` };
+  const map = parseStatusMap(m.status_map);
+  const levels = parseLevelMap(m.level_map);
+  const only = String(m.alert_values ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const items: HookItem[] = [];
+  let ignored = 0;
+  for (const [i, it] of list.slice(0, MAX_ITEMS).entries()) {
+    const name = getPath(it, m.name_path ?? '');
+    if (typeof name !== 'string' && typeof name !== 'number') { ignored++; continue; }
+    const key = String(m.key_path ? getPath(it, m.key_path) ?? name : name).slice(0, 200) || `item${i}`;
+    const detail = m.detail_path ? getPath(it, m.detail_path) : '';
+    const text = typeof detail === 'string' ? detail.slice(0, 300) : '';
+    if (m.as === 'alert') {
+      const raw = m.status_path ? String(getPath(it, m.status_path) ?? '').trim().toLowerCase() : '';
+      const firing = !only.length || only.includes(raw);
+      const lvl = m.level_path ? String(getPath(it, m.level_path) ?? '').trim().toLowerCase() : '';
+      const since = m.since_path ? toMillis(getPath(it, m.since_path)) : null;
+      items.push({ key, type: 'alert', name: String(name).slice(0, 200), level: levels[lvl] ?? levelOf(lvl), status: firing ? 'firing' : 'resolved', detail: text, url: null, ...(since ? { since } : {}) });
+    } else {
+      const st = statusWord(m.status_path ? getPath(it, m.status_path) : 'up', map);
+      if (st === 'unknown' || st === 'maintenance') { ignored++; continue; }
+      items.push({ key, type: 'check', name: String(name).slice(0, 200), level: st === 'down' ? 'error' : st === 'pending' ? 'warn' : 'info', status: st, detail: text, url: null });
+    }
+  }
+  return items.length ? { items, ignored } : { error: 'Nothing in what was sent could be read with this mapping. Check the paths and the status values.' };
+}
+
 // ---- receiver ---------------------------------------------------------------------------------
 const buckets = new Map<string, { n: number; reset: number }>();
 function count(key: string, now: number) {
@@ -126,7 +164,8 @@ export function registerHooks(app: FastifyInstance) {
       if (!src) { count(`f|${req.ip}`, now); return reply.code(401).send({ error: 'Unauthorized' }); }
       if (count(`s|${src.id}`, now).n > PER_SOURCE) return reply.code(429).header('Retry-After', '60').send({ error: 'Too many requests for this source' });
 
-      const parsed = parseHookPayload(req.body);
+      // A mapping set on the source wins; without one the built-in shapes (Alertmanager, Grafana, plain) are tried.
+      const parsed = src.config.items_path ? parseMappedPayload(req.body, src.config as PushMapping) : parseHookPayload(req.body);
       if ('error' in parsed) return reply.code(400).send({ error: parsed.error });
       for (const it of parsed.items) {
         if (it.status === 'resolved') deleteHookState(src.id, it.key);
