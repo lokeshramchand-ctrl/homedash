@@ -1,3 +1,4 @@
+import { selectedCluster } from './selection';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { GuestStatus } from './types';
@@ -54,19 +55,21 @@ export function useQuery<T>(fn: () => Promise<T>, deps: unknown[] = [], interval
 
 /** Subscribes to GET /api/events (SSE). Polling still covers us if it is unavailable. */
 export function useGuestEvents(cb: (e: { vmid: number; status: GuestStatus }) => void) {
+  const cluster = selectedCluster();
   const ref = useRef(cb);
   ref.current = cb;
   useEffect(() => {
     if (typeof EventSource === 'undefined') return;
-    const es = new EventSource('/api/events');
+    // EventSource cannot set headers, so the cluster travels in the query. The server tags every event with its cluster.
+    const es = new EventSource(`/api/events${cluster ? `?cluster=${encodeURIComponent(cluster)}` : ''}`);
     es.onmessage = (m) => {
       try {
         const e = JSON.parse(m.data);
-        if (e.type === 'guest') ref.current(e);
+        if (e.type === 'guest' && (!cluster || !e.cluster || e.cluster === cluster)) ref.current(e);
       } catch { /* ignore malformed */ }
     };
     return () => es.close();
-  }, []);
+  }, [cluster]);
 }
 
 /** Eases a number toward its target with an ease-out curve. Honours reduced-motion

@@ -8,7 +8,9 @@ import { space, useTheme } from '../theme';
 export default function Login() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { signIn, serverUrl, notice } = useSession();
+  const { signIn, signInWithToken, serverUrl, notice } = useSession();
+  const [useToken, setUseToken] = useState(false);
+  const [token, setTokenText] = useState('');
   const [url, setUrl] = useState(serverUrl);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -19,7 +21,8 @@ export default function Login() {
     setBusy(true);
     setError(null);
     try {
-      await signIn(url, username, password);
+      if (useToken) await signInWithToken(url, token);
+      else await signIn(url, username, password);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -40,11 +43,18 @@ export default function Login() {
 
         <Card style={{ gap: space.lg }}>
           <Field label="Dashboard address" value={url} onChangeText={setUrl} placeholder="https://dash.home.lan" keyboardType="url" textContentType="URL" />
-          <Field label="Username" value={username} onChangeText={setUsername} textContentType="username" autoComplete="username" />
-          <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry textContentType="password" autoComplete="password" onSubmitEditing={submit} returnKeyType="go" />
+          {useToken ? (
+            <Field label="API token" value={token} onChangeText={setTokenText} secureTextEntry autoCapitalize="none" autoCorrect={false} onSubmitEditing={submit} returnKeyType="go" />
+          ) : (
+            <>
+            <Field label="Username" value={username} onChangeText={setUsername} textContentType="username" autoComplete="username" />
+            <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry textContentType="password" autoComplete="password" onSubmitEditing={submit} returnKeyType="go" />
+            </>
+          )}
           {notice && !error ? <Txt tone="amber" small>{notice}</Txt> : null}
           {error ? <Txt tone="red" small>{error}</Txt> : null}
-          <Button kind="primary" title="Sign in" onPress={submit} busy={busy} disabled={!url || !username || !password} />
+          <Button kind="primary" title="Sign in" onPress={submit} busy={busy} disabled={!url || (useToken ? !token : !username || !password)} />
+          <Button title={useToken ? 'Use my password instead' : 'Use an API token instead (two-step or single sign-on)'} onPress={() => { setUseToken(!useToken); setError(null); }} />
         </Card>
 
         <Txt muted small style={{ textAlign: 'center' }}>Use https:// when possible. The server sets a secure session cookie.</Txt>

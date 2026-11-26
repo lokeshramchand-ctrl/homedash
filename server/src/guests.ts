@@ -1,6 +1,6 @@
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
-import { cfg } from './config.js';
+import { CLUSTERS, currentCluster, forEachCluster, nodeOfTask, nodePath } from './clusters.js';
 import { insertAudit } from './db.js';
 import { HttpError } from './errors.js';
 import { parseTimeframe, rrdRows, UPID } from './node.js';
@@ -9,6 +9,8 @@ import { pve } from './proxmox.js';
 export interface Guest {
   vmid: number; name: string; type: 'lxc' | 'qemu'; status: 'running' | 'stopped' | 'paused';
   cpu: number; memUsed: number; memMax: number; uptime: number; protected: boolean; tags: string[]; conflicts: number[]; featured: boolean;
+  /** The Proxmox node the guest runs on, and the cluster it belongs to. */
+  node: string; cluster: string;
 }
 export type Action = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | 'suspend' | 'resume';
 export const ACTIONS: Action[] = ['start', 'shutdown', 'stop', 'reboot', 'reset', 'suspend', 'resume'];
@@ -25,24 +27,50 @@ const SECRET_RE = /(password|passwd|secret|token|apikey|api_key|privkey|private_
 const isSecretKey = (k: string) => SECRET_KEYS.has(k) || SECRET_RE.test(k);
 
 function map(type: 'lxc' | 'qemu', r: any): Guest {
+  const c = currentCluster();
   const vmid = Number(r.vmid);
   const status = r.status === 'running' ? (r.qmpstatus === 'paused' ? 'paused' : 'running') : 'stopped';
   return {
     vmid, name: r.name ?? `${type}-${vmid}`, type, status,
     cpu: Number(r.cpu ?? 0), memUsed: Number(r.mem ?? 0), memMax: Number(r.maxmem ?? 0), uptime: Number(r.uptime ?? 0),
-    protected: cfg.protectedVmids.has(vmid),
-    featured: cfg.featuredVmid === vmid,
+    protected: c.protectedVmids.has(vmid),
+    featured: c.featuredVmid === vmid,
     tags: r.tags ? String(r.tags).split(/[;,]/).filter(Boolean) : [],
-    conflicts: cfg.conflicts[vmid] ?? [],
+    conflicts: c.conflicts[vmid] ?? [],
+    node: String(r.node ?? c.node), cluster: c.id,
   };
 }
 
+// Short-lived cache per cluster: every guest route resolves its vmid through the list, and Proxmox is slow.
+const listCache = new Map<string, { at: number; rows: Guest[] }>();
+const listInflight = new Map<string, Promise<Guest[]>>();
+export const invalidateGuests = () => { listCache.delete(currentCluster().id); };
 export async function listGuests(): Promise<Guest[]> {
-  const n = encodeURIComponent(cfg.pveNode);
-  const [lxc, qemu] = await Promise.all([pve<any[]>('GET', `/nodes/${n}/lxc`), pve<any[]>('GET', `/nodes/${n}/qemu`)]);
-  return [...lxc.map((r) => map('lxc', r)), ...qemu.filter((r) => !r.template).map((r) => map('qemu', r))]
-    .filter((g) => cfg.allowedVmids.size === 0 || cfg.allowedVmids.has(g.vmid))
+  const c = currentCluster();
+  const hit = listCache.get(c.id);
+  if (hit && Date.now() - hit.at < 1500) return hit.rows;
+  let p = listInflight.get(c.id);
+  if (!p) {
+    p = fetchGuests().then((rows) => { listCache.set(c.id, { at: Date.now(), rows }); return rows; }).finally(() => { listInflight.delete(c.id); });
+    listInflight.set(c.id, p);
+  }
+  return p;
+}
+async function fetchGuests(): Promise<Guest[]> {
+  const c = currentCluster();
+  // One call lists the guests of every node (on a stand-alone node it lists that node's guests).
+  const rows = await pve<any[]>('GET', '/cluster/resources?type=vm');
+  return rows
+    .filter((r) => (r.type === 'lxc' || r.type === 'qemu') && !r.template)
+    .map((r) => map(r.type, r))
+    .filter((g) => c.allowedVmids.size === 0 || c.allowedVmids.has(g.vmid))
     .sort((a, b) => a.vmid - b.vmid);
+}
+
+/** `/nodes/<node>` for the node a guest currently runs on (falls back to the cluster's preferred node). */
+export async function guestNode(vmid: number): Promise<string> {
+  const g = (await listGuests().catch(() => [])).find((x) => x.vmid === vmid);
+  return nodePath(g?.node ?? currentCluster().node);
 }
 
 /** Validates and performs one power action; shared by the guest routes, scenes and schedules. Returns the Proxmox task id. */
@@ -62,7 +90,8 @@ export async function performGuestAction(vmid: number, action: Action, user: str
     return refuse(409, 'NOT_RUNNING', `${g.name} is not running`, g.name);
   }
   try {
-    const taskId = await pve<string>('POST', `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${vmid}/status/${action}`);
+    const taskId = await pve<string>('POST', `${nodePath(g.node)}/${g.type}/${vmid}/status/${action}`);
+    invalidateGuests();
     insertAudit({ ...base, name: g.name, result: 'accepted', taskId });
     return taskId;
   } catch (e) {
@@ -77,13 +106,13 @@ const parseVmid = (v: string) => {
   return n;
 };
 
-async function findGuest(v: string): Promise<Guest> {
+export async function findGuest(v: string): Promise<Guest> {
   const vmid = parseVmid(v);
   const g = (await listGuests()).find((x) => x.vmid === vmid);
   if (!g) throw new HttpError(404, 'NOT_FOUND', `Guest ${vmid} does not exist or is not allowed`);
   return g;
 }
-const guestPath = (g: Guest) => `/nodes/${encodeURIComponent(cfg.pveNode)}/${g.type}/${g.vmid}`;
+export const guestPath = (g: Guest) => `${nodePath(g.node)}/${g.type}/${g.vmid}`;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 
 export function registerGuests(app: FastifyInstance) {
@@ -167,16 +196,17 @@ export function registerGuests(app: FastifyInstance) {
   app.get<{ Params: { taskId: string } }>('/api/tasks/:taskId', async (req) => {
     const id = req.params.taskId;
     if (!UPID.test(id)) throw new HttpError(400, 'BAD_REQUEST', 'Invalid task id');
-    const t = await pve<{ status: string; exitstatus?: string }>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/tasks/${encodeURIComponent(id)}/status`);
+    // The task id names the node it ran on, which is not necessarily the selected one in a cluster.
+    const t = await pve<{ status: string; exitstatus?: string }>('GET', `${nodePath(nodeOfTask(id) ?? currentCluster().node)}/tasks/${encodeURIComponent(id)}/status`);
     if (t.status === 'running') return { status: 'running', message: '' };
     return t.exitstatus === 'OK'
       ? { status: 'ok', message: 'TASK OK' }
       : { status: 'error', message: t.exitstatus ? `TASK ERROR: ${t.exitstatus}` : 'Task failed' };
   });
 
-  // --- SSE: server-side poll of Proxmox, pushed to every open browser tab ---
+  // --- SSE: server-side poll of Proxmox, pushed to every open browser tab (every cluster, each event tagged with its cluster) ---
   const clients = new Set<ServerResponse>();
-  let last = new Map<number, string>();
+  let last = new Map<string, string>();
   let timer: NodeJS.Timeout | undefined;
   let busy = false;
 
@@ -184,14 +214,17 @@ export function registerGuests(app: FastifyInstance) {
     if (busy) return;
     busy = true;
     try {
-      const next = new Map<number, string>();
-      for (const g of await listGuests()) {
-        next.set(g.vmid, g.status);
-        if (last.size && last.get(g.vmid) !== g.status) {
-          const msg = `data: ${JSON.stringify({ type: 'guest', vmid: g.vmid, status: g.status })}\n\n`;
-          clients.forEach((c) => c.write(msg));
+      const next = new Map<string, string>();
+      await forEachCluster(async (c) => {
+        for (const g of await listGuests()) {
+          const key = `${c.id}:${g.vmid}`;
+          next.set(key, g.status);
+          if (last.size && last.get(key) !== g.status) {
+            const msg = `data: ${JSON.stringify({ type: 'guest', cluster: c.id, vmid: g.vmid, status: g.status })}\n\n`;
+            clients.forEach((cl) => cl.write(msg));
+          }
         }
-      }
+      });
       last = next;
       clients.forEach((c) => c.write(': ping\n\n'));
     } catch (e) {
@@ -210,7 +243,7 @@ export function registerGuests(app: FastifyInstance) {
     });
     res.write('retry: 5000\n\n');
     clients.add(res);
-    if (!timer) { last = new Map(); timer = setInterval(tick, 3000); void tick(); }
+    if (!timer) { last = new Map(); timer = setInterval(() => void tick(), 3000); void tick(); }
     req.raw.on('close', () => {
       clients.delete(res);
       if (!clients.size && timer) { clearInterval(timer); timer = undefined; }

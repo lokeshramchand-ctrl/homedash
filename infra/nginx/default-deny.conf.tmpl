@@ -1,0 +1,8 @@
+# managed by homedash-config (nginx.default_deny: true)
+# Catch-all for hostnames that have no site of their own (useful with wildcard DNS): refuses the TLS handshake
+# instead of falling through to whichever site loads first.
+server {
+    listen 443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}

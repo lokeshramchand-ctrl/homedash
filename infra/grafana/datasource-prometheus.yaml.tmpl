@@ -1,0 +1,10 @@
+# Grafana provisioning: Prometheus datasource (rendered by homedash-config). Install in /etc/grafana/provisioning/datasources/
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: {{#if env.GRAFANA_DS_UID}}{{env.GRAFANA_DS_UID}}{{else}}prometheus{{/if}}
+    type: prometheus
+    access: proxy
+    url: {{env.PROMETHEUS_URL}}
+    isDefault: true
+    editable: false

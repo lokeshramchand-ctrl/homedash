@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Publish a read-only snapshot of CrowdSec for the homedash CrowdSec page.
+
+Runs as root on the Proxmox host from homedash-crowdsec-snapshot.timer. homedash runs unprivileged inside its own
+container and holds no CrowdSec credentials (a machine login would hand it write access to the decision list), so this
+file is the bridge: a JSON snapshot written atomically, then copied into the homedash container.
+
+  CrowdSec engine : {{#if addons.crowdsec.container}}container {{addons.crowdsec.container}} (pct exec ... cscli){{else}}this host (cscli){{/if}}
+  Destination     : {{env.CROWDSEC_SNAPSHOT}} (inside the homedash container; set HOMEDASH_CTID in /etc/homedash/host.env)
+
+Nothing here changes CrowdSec.
+"""
+import json, os, subprocess, sys, tempfile
+from datetime import datetime, timezone
+
+ENGINE_CT = '{{addons.crowdsec.container}}'
+HOMEDASH_CT = os.environ.get('HOMEDASH_CTID', '')
+DEST = '{{env.CROWDSEC_SNAPSHOT}}'
+
+
+def cscli(*args, timeout=25):
+    cmd = ['cscli', *args, '-o', 'json']
+    if ENGINE_CT not in ('', '0'):
+        cmd = ['pct', 'exec', ENGINE_CT, '--', *cmd]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        raise RuntimeError(f"cscli {' '.join(args)}: {r.stderr.strip()[:200]}")
+    out = r.stdout.strip()
+    return json.loads(out) if out and out != 'null' else []
+
+
+def slim_alert(a):
+    s = a.get('source') or {}
+    return {
+        'id': a.get('id'), 'createdAt': a.get('created_at'), 'scenario': a.get('scenario'), 'machine': a.get('machine_id'),
+        'eventsCount': a.get('events_count'), 'startAt': a.get('start_at'), 'stopAt': a.get('stop_at'), 'simulated': bool(a.get('simulated')),
+        'source': {'ip': s.get('ip') or s.get('value'), 'scope': s.get('scope'), 'country': s.get('cn'), 'asName': s.get('as_name'), 'asNumber': s.get('as_number'), 'range': s.get('range')},
+        'decisions': [{'id': d.get('id'), 'type': d.get('type'), 'duration': d.get('duration'), 'origin': d.get('origin'), 'value': d.get('value')} for d in (a.get('decisions') or [])],
+    }
+
+
+def main():
+    state = {'generatedAt': datetime.now(timezone.utc).isoformat(), 'errors': []}
+    jobs = {
+        'alerts': lambda: [slim_alert(a) for a in cscli('alerts', 'list', '--since', '168h', '--limit', '500')],
+        'localDecisions': lambda: [slim_alert(a) for a in cscli('decisions', 'list')],
+        'machines': lambda: [{'name': m.get('machineId'), 'ip': m.get('ipAddress'), 'version': m.get('version'), 'validated': m.get('isValidated'), 'lastHeartbeat': m.get('last_heartbeat'), 'os': m.get('os'), 'features': m.get('features') or []} for m in cscli('machines', 'list')],
+        'bouncers': lambda: [{'name': b.get('name'), 'ip': b.get('ip_address'), 'type': b.get('type'), 'version': b.get('version'), 'revoked': b.get('revoked'), 'lastPull': b.get('last_pull'), 'os': b.get('os')} for b in cscli('bouncers', 'list')],
+        'allowlists': lambda: [{'name': l.get('name'), 'description': l.get('description'), 'items': [{'value': i.get('value'), 'description': i.get('description'), 'expiration': None if str(i.get('expiration', '')).startswith('0001') else i.get('expiration')} for i in (l.get('items') or [])]} for l in cscli('allowlists', 'list')],
+        'collections': lambda: [{'name': c.get('name'), 'status': c.get('status'), 'version': c.get('local_version')} for c in (cscli('collections', 'list') or {}).get('collections', [])],
+    }
+    for key, fn in jobs.items():
+        try:
+            state[key] = fn()
+        except Exception as e:  # one failing query must not hide the rest
+            state[key] = []
+            state['errors'].append(f'{key}: {e}')
+
+    fd, tmp = tempfile.mkstemp(prefix='.homedash-crowdsec-')
+    with os.fdopen(fd, 'w') as f:
+        json.dump(state, f)
+    os.chmod(tmp, 0o644)
+    try:
+        if HOMEDASH_CT:
+            staged = DEST + '.new'
+            subprocess.run(['pct', 'exec', HOMEDASH_CT, '--', 'mkdir', '-p', os.path.dirname(DEST)], check=True, capture_output=True, timeout=25)
+            subprocess.run(['pct', 'push', HOMEDASH_CT, tmp, staged, '--perms', '0644'], check=True, capture_output=True, timeout=25)
+            subprocess.run(['pct', 'exec', HOMEDASH_CT, '--', 'mv', '-f', staged, DEST], check=True, capture_output=True, timeout=25)
+        else:
+            os.makedirs(os.path.dirname(DEST), mode=0o755, exist_ok=True)
+            os.replace(tmp, DEST)
+            tmp = None
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as e:
+        print('homedash-crowdsec-snapshot failed:', e, file=sys.stderr)
+        sys.exit(1)

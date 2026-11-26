@@ -1,0 +1,54 @@
+# Prometheus scrape configuration rendered by homedash-config (addons.prometheus). Mode 0600: it holds the metrics token.
+# Install as /etc/prometheus/prometheus.yml in your Prometheus container, then: systemctl reload prometheus
+global:
+  scrape_interval: {{addons.prometheus.scrape_interval}}
+  evaluation_interval: {{addons.prometheus.scrape_interval}}
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+{{#if metrics_token}}
+
+  # homedash's own metrics (guest states, health score, forecasts). The token is METRICS_TOKEN from the server settings.
+  - job_name: "homedash"
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: "{{metrics_token}}"
+    static_configs:
+      - targets: ["{{prometheus_homedash_target}}"]
+{{/if}}
+{{#if addons.prometheus.node_targets}}
+
+  - job_name: "proxmox-node"
+    static_configs:
+{{#each addons.prometheus.node_targets}}
+      - targets: ["{{.address}}"]
+        labels:
+          instance_name: "{{.name}}"
+{{/each}}
+{{/if}}
+{{#if addons.prometheus.crowdsec_targets}}
+
+  # CrowdSec engines expose metrics on :6060 when prometheus is enabled in their config.yaml
+  - job_name: "crowdsec"
+    static_configs:
+{{#each addons.prometheus.crowdsec_targets}}
+      - targets: ["{{.address}}"]
+        labels:
+          instance_name: "{{.name}}"
+{{/each}}
+{{/if}}
+{{#each addons.prometheus.targets}}
+
+  - job_name: "{{.job}}"
+{{#if .path}}
+    metrics_path: {{.path}}
+{{/if}}
+{{#if .interval}}
+    scrape_interval: {{.interval}}
+{{/if}}
+    static_configs:
+      - targets: [{{.target_list}}]
+{{/each}}

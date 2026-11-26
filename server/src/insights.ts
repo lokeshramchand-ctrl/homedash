@@ -1,3 +1,4 @@
+import { currentCluster, currentNode, hostPath } from './clusters.js';
 import type { FastifyInstance } from 'fastify';
 import { cfg, pveConfigured } from './config.js';
 import { notConfigured } from './errors.js';
@@ -6,7 +7,7 @@ import type { Guest } from './guests.js';
 import { listSites } from './nginx.js';
 import { pve } from './proxmox.js';
 
-const node = () => `/nodes/${encodeURIComponent(cfg.pveNode)}`;
+const node = () => hostPath();
 const DAY = 86_400_000;
 const num = (v: unknown) => (v == null || v === '' ? 0 : Number(v));
 
@@ -200,7 +201,7 @@ export async function buildCapacity() {
     const total = num(s.total), used = num(s.used);
     return { storage: String(s.storage), type: String(s.type ?? ''), used, total, usedRatio: total ? used / total : 0, ...f };
   });
-  const mine = vms.filter((v) => v.node === cfg.pveNode && !v.template && (cfg.allowedVmids.size === 0 || cfg.allowedVmids.has(Number(v.vmid))));
+  const mine = vms.filter((v) => v.node === currentNode() && !v.template && (currentCluster().allowedVmids.size === 0 || currentCluster().allowedVmids.has(Number(v.vmid))));
   const memTotal = num(status.memory?.total), memUsed = num(status.memory?.used);
   const cores = num(status.cpuinfo?.cpus);
   const reserve = cfg.memoryReserveMb * 1024 * 1024;

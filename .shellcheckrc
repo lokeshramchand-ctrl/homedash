@@ -1,0 +1,4 @@
+# The scripts are written against the community-scripts framework and a sourced helper library:
+# variables and functions they use are defined in files shellcheck cannot see from here.
+external-sources=true
+disable=SC1090,SC1091,SC2154,SC2034,SC2329,SC2016

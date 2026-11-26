@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { MigrateModal } from '../components/Cluster';
 import { Async, Badge, Card, CardHead, Chips, EmptyState, HoldButton, Icon, Menu, Meter, Modal, PageHeader, Spinner } from '../components/ui';
 import type { IconName } from '../components/ui';
 import { kindBadge, KV, tidy, LogList, RecurringTable, RrdCard, SINCE, TaskTable, TimeframePicker } from '../components/Pve';
@@ -53,17 +54,20 @@ export default function GuestDetail({ vmid, tab: initial }: { vmid: number; tab?
     }
   }
 
+  const [migrate, setMigrate] = useState(false);
   const ask = (a: GuestAction) => (a === 'start' || a === 'resume' ? run(a) : setConfirm(a));
 
   return (
     <>
       <PageHeader eyebrow={`Datacenter / ${g?.type === 'qemu' ? 'Virtual machine' : g ? 'Container' : 'Guest'} ${vmid}`}
         title={g?.name ?? `Guest ${vmid}`}
-        actions={g && <PowerBar g={g} busy={busy} onAction={ask} />} />
+        actions={g && <>{!g.protected && <button className="btn" onClick={() => setMigrate(true)}><Icon name="rotate" size={15} />Migrate</button>}<PowerBar g={g} busy={busy} onAction={ask} /></>} />
+      {migrate && g && <MigrateModal vmid={g.vmid} name={g.name} onClose={() => setMigrate(false)} onDone={() => st.reload()} />}
       {g && (
         <div className="guest-strip">
           <Badge tone={g.status === 'running' ? 'green' : g.status === 'paused' ? 'amber' : 'gray'} dot>{busy ? <><Spinner size={10} />{VERB[busy]}…</> : g.status}</Badge>
           <Badge tone={g.type === 'qemu' ? 'blue' : 'gray'}>{g.type === 'qemu' ? 'QEMU VM' : 'LXC container'}</Badge>
+          <Badge tone="gray" title="The Proxmox node this guest runs on"><Icon name="node" size={11} />{g.node}</Badge>
           {g.protected && <Badge tone="violet"><Icon name="lock" size={11} />Protected</Badge>}
           {g.lock && <Badge tone="amber"><Icon name="lock" size={11} />Locked: {g.lock}</Badge>}
           {g.haManaged && <Badge tone="blue">HA managed</Badge>}

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Stand-in for the community-scripts framework functions, so install/homedash-install.sh can be run
 # unmodified inside a plain Debian container (see test-ct.sh). Not part of the submission.
 set -Eeuo pipefail

@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { forEachCluster, multiCluster } from './clusters.js';
 import { cfg, pveConfigured } from './config.js';
 import { countEvents, dbOk } from './db.js';
 import { listGuests } from './guests.js';
@@ -47,28 +48,36 @@ export function registerMetrics(app: FastifyInstance) {
     try { r.add('homedash_errors_24h', 'Error-level system events in the last 24 hours.', 'gauge', countEvents('error', Date.now() - 86_400_000)); } catch { /* db down */ }
 
     if (pveConfigured()) {
-      const [guests, node] = await Promise.allSettled([listGuests(), pve<any>('GET', `/nodes/${encodeURIComponent(cfg.pveNode)}/status`)]);
-      r.add('homedash_proxmox_up', 'The Proxmox API answers.', 'gauge', guests.status === 'fulfilled' ? 1 : 0);
-      if (guests.status === 'fulfilled') {
-        for (const g of guests.value) {
-          const l = { vmid: g.vmid, name: g.name, type: g.type };
-          r.add('homedash_guest_running', '1 when the guest is running.', 'gauge', g.status === 'running' ? 1 : 0, l);
-          r.add('homedash_guest_cpu_ratio', 'Guest CPU use, 0..1.', 'gauge', g.cpu, l);
-          r.add('homedash_guest_memory_used_bytes', 'Guest memory in use.', 'gauge', g.memUsed, l);
-          r.add('homedash_guest_memory_max_bytes', 'Guest memory limit.', 'gauge', g.memMax, l);
-          r.add('homedash_guest_uptime_seconds', 'Guest uptime.', 'gauge', g.uptime, l);
+      // Every cluster, every node. The `cluster` label is only added when there is more than one, so a single-cluster
+      // setup keeps exactly the series (and dashboards) it always had.
+      await forEachCluster(async (c) => {
+        const cl: Record<string, string> = multiCluster() ? { cluster: c.id } : {};
+        const [guests, nodes] = await Promise.allSettled([listGuests(), pve<any[]>('GET', '/cluster/resources?type=node')]);
+        r.add('homedash_proxmox_up', 'The Proxmox API answers.', 'gauge', guests.status === 'fulfilled' ? 1 : 0, cl);
+        if (guests.status === 'fulfilled') {
+          for (const g of guests.value) {
+            const l: Record<string, string | number> = { vmid: g.vmid, name: g.name, type: g.type, ...(multiCluster() ? { cluster: c.id, node: g.node } : {}) };
+            r.add('homedash_guest_running', '1 when the guest is running.', 'gauge', g.status === 'running' ? 1 : 0, l);
+            r.add('homedash_guest_cpu_ratio', 'Guest CPU use, 0..1.', 'gauge', g.cpu, l);
+            r.add('homedash_guest_memory_used_bytes', 'Guest memory in use.', 'gauge', g.memUsed, l);
+            r.add('homedash_guest_memory_max_bytes', 'Guest memory limit.', 'gauge', g.memMax, l);
+            r.add('homedash_guest_uptime_seconds', 'Guest uptime.', 'gauge', g.uptime, l);
+          }
         }
-      }
-      if (node.status === 'fulfilled') {
-        const n = node.value;
-        const l = { node: cfg.pveNode };
-        r.add('homedash_host_cpu_ratio', 'Proxmox host CPU use, 0..1.', 'gauge', Number(n.cpu ?? 0), l);
-        r.add('homedash_host_memory_used_bytes', 'Proxmox host memory in use.', 'gauge', Number(n.memory?.used ?? 0), l);
-        r.add('homedash_host_memory_total_bytes', 'Proxmox host memory installed.', 'gauge', Number(n.memory?.total ?? 0), l);
-        r.add('homedash_host_disk_used_bytes', 'Proxmox host root disk used.', 'gauge', Number(n.rootfs?.used ?? 0), l);
-        r.add('homedash_host_disk_total_bytes', 'Proxmox host root disk size.', 'gauge', Number(n.rootfs?.total ?? 0), l);
-        r.add('homedash_host_uptime_seconds', 'Proxmox host uptime.', 'gauge', Number(n.uptime ?? 0), l);
-      }
+        if (nodes.status === 'fulfilled') {
+          for (const n of nodes.value) {
+            const l = { node: String(n.node), ...cl };
+            r.add('homedash_node_online', '1 when the Proxmox node is online.', 'gauge', n.status === 'online' ? 1 : 0, l);
+            if (n.status !== 'online') continue;
+            r.add('homedash_host_cpu_ratio', 'Proxmox host CPU use, 0..1.', 'gauge', Number(n.cpu ?? 0), l);
+            r.add('homedash_host_memory_used_bytes', 'Proxmox host memory in use.', 'gauge', Number(n.mem ?? 0), l);
+            r.add('homedash_host_memory_total_bytes', 'Proxmox host memory installed.', 'gauge', Number(n.maxmem ?? 0), l);
+            r.add('homedash_host_disk_used_bytes', 'Proxmox host root disk used.', 'gauge', Number(n.disk ?? 0), l);
+            r.add('homedash_host_disk_total_bytes', 'Proxmox host root disk size.', 'gauge', Number(n.maxdisk ?? 0), l);
+            r.add('homedash_host_uptime_seconds', 'Proxmox host uptime.', 'gauge', Number(n.uptime ?? 0), l);
+          }
+        }
+      });
     }
 
     if (pveConfigured()) {

@@ -12,7 +12,7 @@ APP="homedash"
 var_tags="${var_tags:-dashboard;monitoring}"
 var_cpu="${var_cpu:-1}"
 var_ram="${var_ram:-1024}"
-var_disk="${var_disk:-4}"
+var_disk="${var_disk:-6}"
 var_os="${var_os:-debian}"
 var_version="${var_version:-13}"
 var_unprivileged="${var_unprivileged:-1}"
@@ -29,7 +29,10 @@ export var_homedash_grafana_url="${var_homedash_grafana_url:-}"
 export var_homedash_grafana_token="${var_homedash_grafana_token:-}"
 export var_homedash_kuma_url="${var_homedash_kuma_url:-}"
 export var_homedash_kuma_api_key="${var_homedash_kuma_api_key:-}"
+export var_homedash_loki_url="${var_homedash_loki_url:-}"
 export var_homedash_metrics="${var_homedash_metrics:-yes}"
+# A complete homedash.yaml, base64 encoded, replaces all the prompts above: var_homedash_config_b64="$(base64 -w0 homedash.yaml)"
+export var_homedash_config_b64="${var_homedash_config_b64:-}"
 
 header_info "$APP"
 variables
@@ -59,16 +62,30 @@ function update_script() {
 
     restore_backup
 
+    msg_info "Refreshing homedash-config"
+    cat <<'EOF' >/usr/local/bin/homedash-config
+#!/usr/bin/env bash
+exec /usr/bin/node --disable-warning=ExperimentalWarning /opt/homedash/server/build/homedash-config.js "$@"
+EOF
+    chmod 755 /usr/local/bin/homedash-config
+    msg_ok "Refreshed homedash-config"
+
     msg_info "Building homedash"
-    cd /opt/homedash
+    cd /opt/homedash || exit
     $STD npm ci
     $STD npm run build
     rm -rf node_modules
-    cd server
+    cd server || exit
     $STD npm ci
     $STD npm run build
     $STD npm prune --omit=dev
     msg_ok "Built homedash"
+
+    if [[ -f /etc/homedash/homedash.yaml ]]; then
+      msg_info "Applying /etc/homedash/homedash.yaml"
+      $STD homedash-config apply || msg_warn "homedash-config apply failed; run it manually to see why"
+      msg_ok "Applied configuration"
+    fi
 
     msg_info "Starting Service"
     systemctl start homedash
