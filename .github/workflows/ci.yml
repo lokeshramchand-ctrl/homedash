@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -19,7 +19,7 @@ jobs:
   server-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -29,7 +29,7 @@ jobs:
     # Opens the built UI in a real browser against the backend (mock Proxmox) and visits every page.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -52,7 +52,7 @@ jobs:
     # The image must build and the container must answer, with the same non-root, read-only setup compose uses.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t homedash:ci .
       - name: Run it and check it answers
         run: |
@@ -70,7 +70,7 @@ jobs:
     # The shipped example must stay valid: every key it documents is checked by the same code the installer runs.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -85,7 +85,7 @@ jobs:
   scripts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: shellcheck
         run: shellcheck -x ct/*.sh install/*.sh tools/pve/*.sh tools/dev/*.sh
       - name: syntax
