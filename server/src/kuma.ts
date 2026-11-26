@@ -76,6 +76,10 @@ async function current(): Promise<Scraped[]> {
 
 /** Last scraped monitors, or an empty list before the first scrape / when Kuma is not configured. */
 export const kumaSnapshot = (): Scraped[] => snapshot?.items ?? [];
+/** When the snapshot was taken (ms), or 0 before the first successful scrape. */
+export const kumaSnapshotAt = (): number => snapshot?.at ?? 0;
+/** When a monitor that is not up started being not up: first sample after its last "up", else the snapshot time. */
+export const kumaSinceMs = (key: string): number => firstSampleAfter(key, lastSampleTs(key, 'up')) ?? snapshot?.at ?? Date.now();
 
 export async function kumaCounts(): Promise<{ up: number; down: number; pending: number }> {
   const items = await current();
@@ -109,10 +113,9 @@ export function registerKuma(app: FastifyInstance) {
   app.get('/api/kuma/incidents', async () => {
     const bad = (await current()).filter((i) => i.status !== 'up');
     return bad.map((i) => {
-      const first = firstSampleAfter(i.key, lastSampleTs(i.key, 'up'));
       return {
         monitorId: idOf(i.key), name: i.name, status: i.status,
-        since: new Date(first ?? snapshot!.at).toISOString(),
+        since: new Date(kumaSinceMs(i.key)).toISOString(),
         message: i.status === 'down' ? 'Monitor is down' : i.status === 'pending' ? 'Monitor is retrying' : 'Under maintenance',
       };
     });
