@@ -5,7 +5,10 @@ import type { FastifyInstance } from 'fastify';
 import { ensureKuma } from '../kuma.js';
 import { createEngine } from './engine.js';
 import type { Instance } from './engine.js';
+import { alertmanagerProvider } from './providers/alertmanager.js';
 import { grafanaProvider } from './providers/grafana.js';
+import { jsonPollProvider } from './providers/jsonpoll.js';
+import { prometheusProvider } from './providers/prometheus.js';
 import { kumaProvider } from './providers/kuma.js';
 import { BOOT, applyRuntimeConfig, isShadowed } from './runtime.js';
 import { loadSources } from './store.js';
@@ -14,7 +17,7 @@ import type { Provider } from './types.js';
 
 /** Builds the provider for a saved source of one kind. Kinds are added here as their providers are written. */
 type Factory = (s: LoadedSource) => Provider;
-export const FACTORIES: Record<string, Factory> = {};
+export const FACTORIES: Record<string, Factory> = { prometheus: prometheusProvider, alertmanager: alertmanagerProvider, jsonpoll: jsonPollProvider };
 
 const implicit = (): Instance[] => [
   { id: 'kuma', provider: kumaProvider, managed: BOOT.kuma ? 'config' : 'ui' },
