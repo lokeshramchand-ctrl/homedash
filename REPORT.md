@@ -5,7 +5,7 @@ Four workstreams. A box is ticked only when the work is done, verified and pushe
 - [x] **1. Make it trustworthy**
 - [x] **2. User-friendliness**
 - [x] **3. Features**
-- [ ] **4. Project support**
+- [x] **4. Project support**
 
 ---
 
@@ -79,7 +79,7 @@ Also fixed on the way: error text on an unreachable service card failed colour c
 
 ---
 
-## 4. Project support: done (pending the first CI run of the Docker job, see below)
+## 4. Project support: done (CI green on PR #1, Docker job included)
 
 | Item | Result |
 |---|---|
@@ -94,6 +94,6 @@ Also fixed on the way: error text on an unreachable service card failed colour c
 | **Community-scripts readiness** | `docs/SUBMISSION.md`. Finding: new scripts go to the **ProxmoxVED** testing repository first and PRs for new scripts against ProxmoxVE are closed. The README's headline install command pointed at a community-scripts path that does not exist yet (a 404 for a new user); it now points at this repository. Installer metadata no longer says "single-user". |
 
 ### Not verified, and why
-- **Docker image:** the Docker daemon is not running on this machine and I did not start it. CI builds and runs it; see the PR checks.
+- **Docker image:** the Docker daemon is not running on this machine and I did not start it. It was built and run by the CI job instead, which passes.
 - **Release workflow:** only a real tag proves it.
 - **Community-scripts:** the installer has still never run in a real container. `tools/dev/test-ct.sh` on your Proxmox host is the next step; `docs/SUBMISSION.md` lists the rest.
