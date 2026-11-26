@@ -28,6 +28,7 @@ export default function Monitoring({ role = 'viewer' }: { role?: string }) {
   const [form, setForm] = useState<{ source?: MonSource } | null>(null);
   const [rotated, setRotated] = useState<{ path: string; secret: string; name: string } | null>(null);
   const [confirm, setConfirm] = useState('');
+  const [confirmRotate, setConfirmRotate] = useState('');
   const [testing, setTesting] = useState('');
   const [result, setResult] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [view, setView] = useState<'problems' | 'all'>('problems');
@@ -104,7 +105,9 @@ export default function Monitoring({ role = 'viewer' }: { role?: string }) {
                     <div className="chips-row">
                       <button className="btn btn-sm" disabled={testing === r.id} onClick={() => retest(r)}>Test</button>
                       <button className="btn btn-sm" onClick={() => setForm({ source: r.src })}>Edit</button>
-                      {r.kind === 'webhook' && <button className="btn btn-sm" onClick={() => rotate(r)}>New secret</button>}
+                      {r.kind === 'webhook' && (confirmRotate === r.id
+                        ? <><button className="btn btn-sm btn-danger" onClick={() => { setConfirmRotate(''); rotate(r); }}>Replace the secret</button><button className="btn btn-sm" onClick={() => setConfirmRotate('')}>Keep it</button></>
+                        : <button className="btn btn-sm" title="The old secret stops working at once" onClick={() => setConfirmRotate(r.id)}>New secret</button>)}
                       {confirm === r.id
                         ? <><button className="btn btn-sm btn-danger" onClick={() => remove(r)}>Really remove</button><button className="btn btn-sm" onClick={() => setConfirm('')}>Keep</button></>
                         : <button className="btn btn-sm" onClick={() => setConfirm(r.id)}>Remove</button>}

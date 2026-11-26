@@ -43,7 +43,7 @@ export function AreaCard({ icon, title, sub, query, color, format, notConnected 
         <span className="area-val">{vals.length ? format(vals[vals.length - 1]) : q.error ? '—' : ''}</span>
       </div>
       <p className="muted area-sub">{sub}</p>
-      {notConnected && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>Not connected. <a className="link" href="#/setup">Connect Grafana in Setup</a></p>}
+      {notConnected && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>No metrics source yet. <a className="link" href="#/setup">Add Grafana and its Prometheus data source ID in Setup</a></p>}
       {!notConnected && q.data === undefined && !q.error && <Skeleton rows={1} h={132} />}
       {!notConnected && q.error && q.data === undefined && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>Couldn’t load metrics. <button className="link" style={{ border: 0, background: 'none' }} onClick={q.reload}>Retry</button></p>}
       {!notConnected && q.data !== undefined && vals.length === 0 && <p className="muted small" style={{ padding: '40px 0', textAlign: 'center' }}>No data for this range.</p>}

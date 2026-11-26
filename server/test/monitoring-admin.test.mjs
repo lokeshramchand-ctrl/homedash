@@ -100,6 +100,15 @@ test('a good source is saved, shown without its secret, and its alerts reach the
   assert.equal(m.sources.find((s) => s.id === promId).managed, 'ui');
 });
 
+test('the same address cannot be connected twice, and the refusal names the existing source', async () => {
+  const again = await admin.call('POST', '/api/monitoring/sources', promBody({ name: 'Copy', url: `http://127.0.0.1:${prom.address().port}/` }));
+  assert.equal(again.status, 400);
+  assert.match(again.body.error, /already connected as "Prod Prometheus"/);
+  assert.equal((await admin.call('GET', '/api/monitoring/sources')).body.sources.length, 1);
+  // Editing the existing source to keep its own address is not a duplicate.
+  assert.equal((await admin.call('PUT', `/api/monitoring/sources/${promId}`, promBody({ password: '' }))).status, 200);
+});
+
 test('an edit with a blank password keeps the saved one; a wrong new password is refused', async () => {
   assert.equal((await admin.call('PUT', `/api/monitoring/sources/${promId}`, promBody({ password: '', name: 'Renamed' }))).status, 200);
   assert.equal((await admin.call('POST', '/api/monitoring/sources/test', { ...promBody({ password: '' }), id: promId })).body.ok, true, 'test reuses the saved secret');

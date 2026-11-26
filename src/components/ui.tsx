@@ -242,6 +242,23 @@ export function HoldButton({ children, onConfirm, danger, ms = 700 }: { children
 }
 
 export function Modal({ title, children, onClose, footer, wide }: { title: string; children: ReactNode; onClose: () => void; footer: ReactNode; wide?: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
+  // Keyboard users: focus moves into the dialog, Tab stays inside it, and focus returns to what opened it.
+  useEffect(() => {
+    const el = box.current;
+    const back = document.activeElement as HTMLElement | null;
+    const tabbable = () => [...(el?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])].filter((n) => n.offsetParent !== null);
+    (el?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled])') ?? tabbable()[0] ?? el)?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const f = tabbable();
+      if (!f.length) { e.preventDefault(); return; }
+      const at = document.activeElement;
+      if (e.shiftKey ? (at === f[0] || !el?.contains(at)) : (at === f[f.length - 1] || !el?.contains(at))) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+    };
+    window.addEventListener('keydown', trap);
+    return () => { window.removeEventListener('keydown', trap); back?.focus?.(); };
+  }, []);
   useEffect(() => {
     const f = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', f);
@@ -251,7 +268,7 @@ export function Modal({ title, children, onClose, footer, wide }: { title: strin
   // the position:fixed scrim and shrink the dialog.
   return createPortal(
     <div className="scrim" onMouseDown={onClose}>
-      <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={box} tabIndex={-1} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
         <h3>{title}</h3>
         <div className="modal-body">{children}</div>
         <div className="modal-foot">{footer}</div>

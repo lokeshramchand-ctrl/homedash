@@ -18,7 +18,7 @@ export interface Integration {
 export const INTEGRATIONS: Integration[] = [
   { id: 'kuma', name: 'Uptime Kuma', what: 'Monitors, heartbeats and incidents on the Uptime page and the Overview.', feature: 'kuma', page: 'kuma', secrets: ['KUMA_API_KEY'],
     snippet: 'kuma:\n  url: http://192.168.1.15:3001\n  api_key: ${KUMA_API_KEY}\n' },
-  { id: 'grafana', name: 'Grafana', what: 'Browse and embed your dashboards, and explore metrics.', feature: 'grafana', page: 'grafana', secrets: ['GRAFANA_TOKEN'],
+  { id: 'grafana', name: 'Grafana', what: 'Browse and embed your dashboards, see firing alerts on the Overview, and explore metrics.', feature: 'grafana', page: 'grafana', secrets: ['GRAFANA_TOKEN'],
     snippet: 'grafana:\n  url: http://192.168.1.14:3000\n  token: ${GRAFANA_TOKEN}      # read-only service account\n  datasource_uid: prometheus\n' },
   { id: 'loki', name: 'Loki logs', what: 'Search logs and see analytics on the Logs page.', feature: 'loki', page: 'logs', secrets: [],
     snippet: 'loki:\n  url: http://192.168.1.16:3100\n' },

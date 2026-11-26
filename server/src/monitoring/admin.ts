@@ -31,6 +31,7 @@ export async function buildInput(kind: string, body: Record<string, unknown>, pr
   }
   const config: Record<string, string> = {};
   const secrets: Record<string, string> = {};
+  const sameAddress = (u: string) => listSources().find((s) => s.kind === kind && s.id !== prev?.id && trimUrl(s.config.url).toLowerCase() === u.toLowerCase());
   for (const f of spec.fields) {
     const raw = str(body[f.name], f.type === 'secret' ? 500 : 300);
     if (f.type === 'secret') {
@@ -44,6 +45,10 @@ export async function buildInput(kind: string, body: Record<string, unknown>, pr
       if (!/^https?:\/\/[^\s/]+/.test(v)) throw bad(`${f.label} must start with http:// or https://`);
       // Never let this form point the server at link-local or cloud-metadata addresses.
       await assertDestinationAllowed({ uri: v } as ConnConfig, [], true);
+    }
+    if (f.name === 'url' && v && kind !== 'webhook') {
+      const dup = sameAddress(v);
+      if (dup) throw bad(`${spec.label} at ${v} is already connected as "${dup.name}".`);
     }
     if (v) config[f.name] = v;
   }

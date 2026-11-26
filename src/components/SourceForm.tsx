@@ -50,8 +50,9 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
     setBusy('test'); setErr(''); setRes(null);
     try { setRes(await api.testMonitoringSource(body())); } catch (e) { setErr((e as Error).message); } finally { setBusy(''); }
   }
+  const stillNeeded = kind ? kind.fields.filter((f) => f.required && !(vals[f.name] ?? '').trim() && !(f.type === 'secret' && saved.has(f.name))).map((f) => f.label) : [];
   async function save(force = false) {
-    setBusy('save'); setErr(''); setCanForce(false);
+    setBusy('save'); setErr(''); setCanForce(false); setRes(null);
     try {
       if (editing) { await api.editMonitoringSource(source!.id, body(force)); toast.success(`${name || kind?.label} saved`); onSaved(); onClose(); }
       else {
@@ -67,7 +68,8 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
 
   if (created) {
     return (
-      <Modal title={`${name || 'Webhook'} is ready`} wide onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Done</button>}>
+      // Escape and a click outside do not close this one: the secret is shown only here. Done does.
+      <Modal key="done" title={`${name || 'Webhook'} is ready`} wide onClose={() => undefined} footer={<button className="btn btn-primary" onClick={onClose}>Done</button>}>
         <HookDetails path={created.path} secret={created.secret} name={name || 'homedash'} />
       </Modal>
     );
@@ -75,7 +77,7 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
 
   if (!kind) {
     return (
-      <Modal title="Connect a source" wide onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
+      <Modal key="pick" title="Connect a source" wide onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
         <p className="muted small">homedash can read these tools, or be told about problems by any tool that can send a web request.</p>
         <div className="kind-grid">
           {kinds.map((k) => (
@@ -89,7 +91,7 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
   }
 
   return (
-    <Modal title={`${editing ? 'Edit' : 'Connect'} ${kind.label}`} wide onClose={busy ? () => undefined : onClose} footer={
+    <Modal key="form" title={`${editing ? 'Edit' : 'Connect'} ${kind.label}`} wide onClose={busy ? () => undefined : onClose} footer={
       <>
         {!editing && <button className="btn" onClick={() => { setKindId(''); setRes(null); setErr(''); }} disabled={!!busy}>Back</button>}
         <button className="btn" onClick={onClose} disabled={!!busy}>Cancel</button>
@@ -105,9 +107,10 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
           {kind.fields.map((f) => (
             <label className="field" key={f.name}>
               {f.label}{!f.required && <span className="muted small"> (optional)</span>}
-              <input className={`input ${f.type === 'url' ? 'mono' : ''}`} type={f.type === 'secret' ? 'password' : 'text'} autoComplete="off"
+              <input className={`input ${f.type === 'url' ? 'mono' : ''}`} type={f.type === 'secret' ? 'password' : 'text'} autoComplete={f.type === 'secret' ? 'new-password' : 'off'}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !missing && !busy) { e.preventDefault(); save(); } }}
                 value={vals[f.name] ?? ''} onChange={(e) => set(f.name, e.target.value)}
-                placeholder={f.type === 'secret' && saved.has(f.name) ? 'Saved. Leave blank to keep it.' : f.type === 'url' ? 'http://192.168.1.20:9090' : ''} />
+                placeholder={f.type === 'secret' && saved.has(f.name) ? 'Saved. Leave blank to keep it.' : /For example (\S+)/.exec(f.hint ?? '')?.[1] ?? (f.type === 'url' ? 'http://192.168.1.20' : '')} />
               {f.hint && <span className="muted small">{f.hint}</span>}
             </label>
           ))}
@@ -120,9 +123,10 @@ export function SourceForm({ kinds, source, initialKind, onClose, onSaved }: { k
             <span className="muted small">So a tool that stops sending cannot leave a problem open forever. Tools that send a resolved message close their own problems sooner.</span></label>
         )}
         {editing && <label className="check"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />Enabled</label>}
-        {err && <div className="callout err" role="alert"><Icon name="alert" size={16} /><span>{err}</span></div>}
+        {stillNeeded.length > 0 && <p className="muted small">Still needed: {stillNeeded.join(', ')}.</p>}
+        {err && <div className="callout err" role="alert"><Icon name="alert" size={16} /><span>{err}{canForce && <> <b>Save anyway</b> keeps the source; it will show as unreachable until it works.</>}</span></div>}
         {res && <div className={`callout ${res.ok ? '' : 'err'}`} role="status"><Icon name={res.ok ? 'check' : 'alert'} size={16} /><span><b>{res.ok ? 'Looks good.' : 'Could not read it.'}</b> {res.message}</span></div>}
-        {editing && source?.kind === 'webhook' && <Badge tone="gray">Use Rotate on the Monitoring page to issue a new secret.</Badge>}
+        {editing && source?.kind === 'webhook' && <Badge tone="gray">Use New secret on the Alerts and sources page to issue a new secret.</Badge>}
       </div>
     </Modal>
   );
