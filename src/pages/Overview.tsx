@@ -6,7 +6,7 @@ import { Async, Badge, Card, CardHead, ErrorState, Icon, Meter, PageHeader, Skel
 import type { IconName, Tone } from '../components/ui';
 import { fmtBytes, fmtPct, fmtUptime, timeAgo } from '../format';
 import { useCountUp, useQuery } from '../hooks';
-import type { GrafanaAlertsInfo, Overview as Ov } from '../types';
+import type { MonitoringSnapshot, Overview as Ov } from '../types';
 
 function Tile({ icon, label, value, sub, tone, href, na }: { icon: IconName; label: string; value: number; sub: string; tone: Tone; href: string; na?: boolean }) {
   const n = Math.round(useCountUp(value));
@@ -54,33 +54,39 @@ function HealthRing({ score }: { score: number }) {
 
 interface Attn { key: string; tone: 'red' | 'amber'; label: string; value: string; text: string; href: string }
 
-function attention(o: Ov, incidents: { monitorId: number; name: string; status: string; message: string }[], ga?: GrafanaAlertsInfo | null): Attn[] {
+/** Everything that needs attention, from the host and from every connected monitoring source. */
+function attention(o: Ov, mon?: MonitoringSnapshot | null, monFailed = false): Attn[] {
   const out: Attn[] = [];
   const m = o.host.memUsed / o.host.memTotal, d = o.host.diskUsed / o.host.diskTotal;
   if (o.host.cpu > 0.75) out.push({ key: 'cpu', tone: 'red', label: 'CPU', value: fmtPct(o.host.cpu), text: 'High CPU on the Proxmox host', href: '#/grafana' });
   if (m > 0.8) out.push({ key: 'mem', tone: 'red', label: 'Memory', value: fmtPct(m), text: 'Memory pressure on the Proxmox host', href: '#/grafana' });
   if (d > 0.8) out.push({ key: 'disk', tone: 'red', label: 'Disk', value: fmtPct(d), text: 'Disk usage warning on the Proxmox host', href: '#/grafana' });
-  for (const i of incidents) {
-    if (i.status === 'maintenance') continue;
-    out.push({ key: `m${i.monitorId}`, tone: i.status === 'down' ? 'red' : 'amber', label: 'Monitor', value: i.status, text: `${i.name} is ${i.status}`, href: '#/kuma' });
+  const label = (id: string) => mon?.sources.find((s) => s.id === id)?.label ?? id;
+  for (const c of mon?.checks ?? []) {
+    if (c.status !== 'down' && c.status !== 'pending') continue;
+    out.push({ key: `c${c.source}|${c.key}`, tone: c.status === 'down' ? 'red' : 'amber', label: c.source === 'kuma' ? 'Monitor' : label(c.source), value: c.status, text: `${c.name} is ${c.status}`, href: c.source === 'kuma' ? '#/kuma' : '#/setup' });
   }
-  // Grafana alert rules that are firing. A failed read is shown as its own item, never as "all clear".
-  for (const a of ga?.alerts ?? []) {
+  for (const a of mon?.alerts ?? []) {
     if (a.state !== 'firing') continue;
-    out.push({ key: `g${a.key}`, tone: a.level === 'error' ? 'red' : 'amber', label: 'Grafana', value: 'firing', text: `${a.name}${a.summary ? `: ${a.summary}` : ''}`, href: a.url ?? '#/grafana' });
+    out.push({ key: `a${a.source}|${a.key}`, tone: a.level === 'error' ? 'red' : 'amber', label: label(a.source), value: 'firing', text: `${a.name}${a.summary ? `: ${a.summary}` : ''}`, href: a.url ?? '#/setup' });
   }
-  if (ga?.configured && ga.error) out.push({ key: 'gerr', tone: 'amber', label: 'Grafana', value: 'unreadable', text: `Can't read Grafana alerts: ${ga.error.slice(0, 120)}`, href: '#/grafana' });
+  // A source that stops answering is a finding of its own, never an empty "all clear". Its last known problems stay listed above.
+  for (const s of mon?.sources ?? []) {
+    if (!s.ok) out.push({ key: `s${s.id}`, tone: 'amber', label: s.label, value: 'unreachable', text: `Can't read ${s.label}: ${(s.error ?? 'no answer').slice(0, 120)}`, href: '#/setup' });
+  }
+  if (monFailed) out.push({ key: 'monfail', tone: 'amber', label: 'Monitoring', value: 'unavailable', text: "Can't read monitoring status from the server", href: '#/setup' });
   return out;
 }
 
 export default function Overview() {
   const ov = useQuery(api.overview, [], 8000);
   const inc = useQuery(api.incidents, [], 10000);
-  const ga = useQuery(api.grafanaAlerts, [], 30000);
+  const mon = useQuery(api.monitoring, [], 10000);
   const pct = (v: number) => `${v.toFixed(0)}%`;
 
-  // Kuma incidents failing (Kuma not set up) must not blank the whole list: every source is optional.
-  const items = ov.data ? attention(ov.data, inc.data ?? [], ga.data) : null;
+  // Every source is optional: one that is not set up, or fails, must not blank the list.
+  const items = ov.data ? attention(ov.data, mon.data, !!mon.error && !mon.data) : null;
+  const notUp = (mon.data?.checks ?? []).filter((c) => c.status !== 'up');
   // Zeros from an integration that was never set up look like real, healthy data; say "not connected" instead.
   const cf = ov.data?.configured;
   const noPve = !!cf && !cf.proxmox, noKuma = !!cf && !cf.kuma, noMetrics = !!cf && !cf.metrics;
@@ -120,10 +126,10 @@ export default function Overview() {
         ) : (
           <div className="health-row">
             <div className="health-main">
-              <HealthRing score={healthScore(ov.data, inc.data ?? [])} />
+              <HealthRing score={healthScore(ov.data, notUp)} />
               <div className="health-text">
                 <p className="eyebrow">System health</p>
-                <h3 className={`attn-title ${items.length ? '' : 'ok'}`}>{healthWord(healthScore(ov.data, inc.data ?? []))}</h3>
+                <h3 className={`attn-title ${items.length ? '' : 'ok'}`}>{healthWord(healthScore(ov.data, notUp))}</h3>
                 <p className="muted small">{items.length ? `${items.length} ${items.length === 1 ? 'item needs' : 'items need'} attention` : 'Everything is running normally.'}</p>
               </div>
             </div>

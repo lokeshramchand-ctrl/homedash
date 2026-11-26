@@ -109,6 +109,10 @@ export interface GuestStatusDetail extends Guest {
 }
 export interface ConfigRow { key: string; value: string | null; pending: string | null; delete: boolean }
 export interface Snapshot { name: string; parent: string | null; description: string; time: number | null; vmstate: boolean; current: boolean }
+export interface MonitoringSource { id: string; kind: string; label: string; managed: 'config'; ok: boolean; stale: boolean; error: string | null; checkedAt: number; checks: number; alerts: number }
+export interface MonitoringCheck { key: string; source: string; name: string; status: 'up' | 'down' | 'pending' | 'maintenance' | 'unknown'; since: number | null; detail: string; url: string | null; ping?: number | null }
+export interface MonitoringAlert { key: string; source: string; name: string; level: 'info' | 'warn' | 'error'; state: 'firing' | 'pending'; since: number | null; summary: string; instances: number; url: string | null }
+export interface MonitoringSnapshot { sources: MonitoringSource[]; checks: MonitoringCheck[]; alerts: MonitoringAlert[]; checkedAt: number }
 export interface NtfyMessage { id: string; time: number; title: string; message: string; priority: number; tags: string[]; click: string | null }
 export interface NtfyInbox { configured: boolean; topic: string; messages: NtfyMessage[]; checkedAt: number; error: string | null }
 export interface NotifySettings { enabled: boolean; recoveries: boolean; mutedUntil: string | null; categories: Record<string, boolean> }

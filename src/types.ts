@@ -14,6 +14,11 @@ export interface Overview {
 export interface NtfyMessage { id: string; time: number; title: string; message: string; priority: number; tags: string[]; click: string | null }
 export interface NtfyInbox { configured: boolean; topic: string; messages: NtfyMessage[]; checkedAt: number; error: string | null }
 
+export interface MonitoringSource { id: string; kind: string; label: string; managed: 'config'; ok: boolean; stale: boolean; error: string | null; checkedAt: number; checks: number; alerts: number }
+export interface MonitoringCheck { key: string; source: string; name: string; status: 'up' | 'down' | 'pending' | 'maintenance' | 'unknown'; since: number | null; detail: string; url: string | null; ping?: number | null }
+export interface MonitoringAlert { key: string; source: string; name: string; level: 'info' | 'warn' | 'error'; state: 'firing' | 'pending'; since: number | null; summary: string; instances: number; url: string | null }
+export interface MonitoringSnapshot { sources: MonitoringSource[]; checks: MonitoringCheck[]; alerts: MonitoringAlert[]; checkedAt: number }
+
 export interface GrafanaAlert {
   key: string; name: string; state: 'firing' | 'pending'; level: 'warn' | 'error';
   folder: string; group: string; summary: string; since: number | null; instances: number; url: string | null;

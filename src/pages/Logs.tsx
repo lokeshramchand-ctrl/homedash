@@ -55,7 +55,7 @@ function Events() {
     <>
       <div className="toolbar">
         <Chips value={level} onChange={setLevel} options={[{ id: 'all', label: 'All' }, { id: 'error', label: 'Errors' }, { id: 'warn', label: 'Warnings' }, { id: 'info', label: 'Info' }]} />
-        <Chips value={source} onChange={setSource} options={['all', 'app', 'db', 'host', 'guest', 'monitor', 'auth', 'alert', 'grafana'].map((s) => ({ id: s, label: s === 'all' ? 'Any source' : s }))} />
+        <Chips value={source} onChange={setSource} options={['all', 'app', 'db', 'host', 'guest', 'monitor', 'auth', 'alert'].map((s) => ({ id: s, label: s === 'all' ? 'Any source' : s }))} />
       </div>
       <Card pad={false}>
         <Async q={q} rows={6} h={36} isEmpty={(d) => d.length === 0} empty={{ title: 'No events', hint: 'Nothing matches these filters.' }}>

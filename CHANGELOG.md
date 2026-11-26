@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Monitoring module (phase 1): one merged list of checks and alerts that Overview and the alert pipeline read, with Uptime Kuma and Grafana as the first two providers (`GET /api/monitoring`). A source that stops answering keeps its last known problems, is shown as unreachable, and raises one alert after two failed reads in a row; it is never shown as "all clear". Existing YAML-configured installs behave as before. Design: `docs/superpowers/specs/2026-11-26-monitoring-module-design.md`.
+- Grafana alert state: firing alert rules appear on Overview and raise alerts through the existing routes, silences and channels.
+- ntfy inbox: the alert topic is read back and shown on the Notifications page and in the mobile app (needs a token that can read the topic).
+- Alert deliveries and monitoring problems are written to the persisted event log (Logs, Events, source "alert" or "monitor").
+- First-run polish: Overview says "Not connected" for integrations that are not set up instead of showing zeros; the login footer shows the real protocol; unknown addresses show a way back; copy buttons say "Copied"; larger tap targets on phones.
+
 ## 1.0.0 - 2026-11-26
 
 - Fix: a server with no Proxmox settings at all (a first Docker run, or an install that is not finished) answered every request, sign-in included, with "No cluster". It now starts, lets you sign in, and shows "Not set up yet" with the Setup checklist.
