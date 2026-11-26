@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- web UI ----
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /web
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -11,7 +11,7 @@ COPY src ./src
 RUN npm run build
 
 # ---- backend ----
-FROM node:22-alpine AS api
+FROM node:26-alpine AS api
 WORKDIR /api
 COPY server/package.json server/package-lock.json ./
 RUN npm ci
@@ -20,7 +20,7 @@ COPY server/src ./src
 RUN npm run build && npm prune --omit=dev
 
 # ---- runtime: backend serves the built UI from the same origin ----
-FROM node:22-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
