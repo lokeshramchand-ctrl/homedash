@@ -33,7 +33,7 @@
   "optionalDependencies": {
     "@zilliz/milvus2-sdk-node": "^3.0.6",
     "mongodb": "^6.12.0",
-    "mssql": "12.7.9",
+    "mssql": "12.8.1",
     "mysql2": "^3.24.6",
     "pg": "^8.23.1",
     "redis": "^5.12.1"
