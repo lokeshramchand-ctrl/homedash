@@ -17,6 +17,13 @@ export interface NtfyInbox { configured: boolean; topic: string; messages: NtfyM
 export interface MonitoringSource { id: string; kind: string; label: string; managed: 'config'; ok: boolean; stale: boolean; error: string | null; checkedAt: number; checks: number; alerts: number }
 export interface MonitoringCheck { key: string; source: string; name: string; status: 'up' | 'down' | 'pending' | 'maintenance' | 'unknown'; since: number | null; detail: string; url: string | null; ping?: number | null }
 export interface MonitoringAlert { key: string; source: string; name: string; level: 'info' | 'warn' | 'error'; state: 'firing' | 'pending'; since: number | null; summary: string; instances: number; url: string | null }
+export interface SourceField { name: string; label: string; type: 'url' | 'text' | 'secret' | 'number'; required?: boolean; hint?: string }
+export interface SourceKind { kind: string; label: string; summary: string; hint: string; mode: 'pull' | 'push'; fields: SourceField[] }
+export interface MonSource {
+  id: string; kind: string; name: string; config: Record<string, string>; secretsSet: string[]; enabled: boolean; intervalS: number; ttlHours: number;
+  createdAt: number; createdBy: string | null; shadowed: boolean; hookPath: string | null; state: MonitoringSource | null;
+}
+export interface MonSources { canEdit: boolean; sources: MonSource[]; config: { id: string; kind: string; label: string; state: MonitoringSource | null }[] }
 export interface MonitoringSnapshot { sources: MonitoringSource[]; checks: MonitoringCheck[]; alerts: MonitoringAlert[]; checkedAt: number }
 
 export interface GrafanaAlert {

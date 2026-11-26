@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { SourceForm } from '../components/SourceForm';
 import { Async, Badge, Card, CardHead, CodeBlock, Icon, Meter, PageHeader } from '../components/ui';
 import type { Tone } from '../components/ui';
 import { useQuery } from '../hooks';
@@ -28,7 +29,10 @@ function Check({ c }: { c: SetupCheck }) {
   );
 }
 
-function Integration({ i }: { i: SetupIntegration }) {
+/** Integrations that can be connected from the browser instead of by editing YAML. */
+const CONNECTABLE = new Set(['kuma', 'grafana']);
+
+function Integration({ i, onConnect }: { i: SetupIntegration; onConnect: (kind: string) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="setup-row">
@@ -41,6 +45,9 @@ function Integration({ i }: { i: SetupIntegration }) {
         <div className="setup-body">
           <p>{i.what}</p>
           {i.enabled && i.page && <a className="link" href={`#/${i.page}`}>Open the page</a>}
+          {!i.enabled && CONNECTABLE.has(i.id) && (
+            <p><button className="btn btn-primary btn-sm" onClick={() => onConnect(i.id)}><Icon name="plus" size={14} />Connect {i.name}</button> <span className="muted small">Saves it here, no restart. Prefer a file? Use the YAML below.</span></p>
+          )}
           {!i.enabled && (
             <>
               <p className="muted small">Add this to <code>/etc/homedash/homedash.yaml</code>{i.secrets.length > 0 && <>, put <b>{i.secrets.join(', ')}</b> in <code>/etc/homedash/secrets.env</code></>}, then run <code>homedash-config apply --restart</code>.</p>
@@ -55,6 +62,8 @@ function Integration({ i }: { i: SetupIntegration }) {
 
 export default function Setup() {
   const q = useQuery(api.setup, [], 0);
+  const cat = useQuery(api.monitoringCatalog, [], 0);
+  const [connect, setConnect] = useState<string | null>(null);
   return (
     <>
       <PageHeader eyebrow="Settings" title="Setup" sub="What is working, what is worth doing next, and exactly how to switch on each integration." />
@@ -75,12 +84,13 @@ export default function Setup() {
               </Card>
               <Card pad={false}>
                 <CardHead title="Integrations" sub="Everything optional. Switch on only what you use; its page appears in the menu." />
-                {s.integrations.map((i) => <Integration key={i.id} i={i} />)}
+                {s.integrations.map((i) => <Integration key={i.id} i={i} onConnect={(k) => (cat.data?.canEdit ? setConnect(k) : (location.hash = '#/monitoring'))} />)}
               </Card>
             </>
           );
         }}
       </Async>
+      {connect && cat.data && <SourceForm kinds={cat.data.kinds} initialKind={connect} onClose={() => setConnect(null)} onSaved={() => q.reload()} />}
     </>
   );
 }

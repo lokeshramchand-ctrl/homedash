@@ -64,17 +64,17 @@ function attention(o: Ov, mon?: MonitoringSnapshot | null, monFailed = false): A
   const label = (id: string) => mon?.sources.find((s) => s.id === id)?.label ?? id;
   for (const c of mon?.checks ?? []) {
     if (c.status !== 'down' && c.status !== 'pending') continue;
-    out.push({ key: `c${c.source}|${c.key}`, tone: c.status === 'down' ? 'red' : 'amber', label: c.source === 'kuma' ? 'Monitor' : label(c.source), value: c.status, text: `${c.name} is ${c.status}`, href: c.source === 'kuma' ? '#/kuma' : '#/setup' });
+    out.push({ key: `c${c.source}|${c.key}`, tone: c.status === 'down' ? 'red' : 'amber', label: c.source === 'kuma' ? 'Monitor' : label(c.source), value: c.status, text: `${c.name} is ${c.status}`, href: c.source === 'kuma' ? '#/kuma' : '#/monitoring' });
   }
   for (const a of mon?.alerts ?? []) {
     if (a.state !== 'firing') continue;
-    out.push({ key: `a${a.source}|${a.key}`, tone: a.level === 'error' ? 'red' : 'amber', label: label(a.source), value: 'firing', text: `${a.name}${a.summary ? `: ${a.summary}` : ''}`, href: a.url ?? '#/setup' });
+    out.push({ key: `a${a.source}|${a.key}`, tone: a.level === 'error' ? 'red' : 'amber', label: label(a.source), value: 'firing', text: `${a.name}${a.summary ? `: ${a.summary}` : ''}`, href: a.url ?? '#/monitoring' });
   }
   // A source that stops answering is a finding of its own, never an empty "all clear". Its last known problems stay listed above.
   for (const s of mon?.sources ?? []) {
-    if (!s.ok) out.push({ key: `s${s.id}`, tone: 'amber', label: s.label, value: 'unreachable', text: `Can't read ${s.label}: ${(s.error ?? 'no answer').slice(0, 120)}`, href: '#/setup' });
+    if (!s.ok) out.push({ key: `s${s.id}`, tone: 'amber', label: s.label, value: 'unreachable', text: `Can't read ${s.label}: ${(s.error ?? 'no answer').slice(0, 120)}`, href: '#/monitoring' });
   }
-  if (monFailed) out.push({ key: 'monfail', tone: 'amber', label: 'Monitoring', value: 'unavailable', text: "Can't read monitoring status from the server", href: '#/setup' });
+  if (monFailed) out.push({ key: 'monfail', tone: 'amber', label: 'Monitoring', value: 'unavailable', text: "Can't read monitoring status from the server", href: '#/monitoring' });
   return out;
 }
 

@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaAlertsInfo, GrafanaPanel, MonitoringSnapshot, NtfyInbox, KumaIncident, KumaMonitor,
+  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaAlertsInfo, GrafanaPanel, MonitoringSnapshot, MonSources, NtfyInbox, SourceKind, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -211,6 +211,14 @@ export const api = {
   nginxReload: () => post<{ ok: boolean }>('/nginx/reload'),
   dashboards: () => get<GrafanaDashboard[]>('/grafana/dashboards'),
   monitoring: () => get<MonitoringSnapshot>('/monitoring'),
+  monitoringCatalog: () => get<{ kinds: SourceKind[]; canEdit: boolean }>('/monitoring/catalog'),
+  monitoringSources: () => get<MonSources>('/monitoring/sources'),
+  testMonitoringSource: (b: unknown) => post<{ ok: boolean; message: string }>('/monitoring/sources/test', b),
+  retestMonitoringSource: (id: string) => post<{ ok: boolean; message: string }>(`/monitoring/sources/${encodeURIComponent(id)}/test`, {}),
+  addMonitoringSource: (b: unknown) => post<{ id: string; test: { ok: boolean; message: string }; secret?: string; hookPath?: string }>('/monitoring/sources', b),
+  editMonitoringSource: (id: string, b: unknown) => put<{ id: string }>(`/monitoring/sources/${encodeURIComponent(id)}`, b),
+  deleteMonitoringSource: (id: string) => del<{ ok: boolean }>(`/monitoring/sources/${encodeURIComponent(id)}`),
+  rotateMonitoringSource: (id: string) => post<{ secret: string; hookPath: string }>(`/monitoring/sources/${encodeURIComponent(id)}/rotate`, {}),
   ntfyInbox: () => get<NtfyInbox>('/ntfy/inbox'),
   grafanaAlerts: () => get<GrafanaAlertsInfo>('/grafana/alerts'),
   panels: (uid: string) => get<GrafanaPanel[]>(`/grafana/panels/${encodeURIComponent(uid)}`),

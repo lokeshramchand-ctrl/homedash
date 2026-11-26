@@ -33,6 +33,7 @@ import Crowdsec from './pages/Crowdsec';
 import Data from './pages/Data';
 import Llama from './pages/Llama';
 import Tiles from './pages/Tiles';
+import Monitoring from './pages/Monitoring';
 import Setup, { SetupNudge } from './pages/Setup';
 import Backups from './pages/Backups';
 import type { AppConfig, Features, Guest } from './types';
@@ -50,6 +51,7 @@ const ALL_NAV: { id: string; label: string; icon: IconName; group: string; featu
   { id: 'capacity', label: 'Capacity', icon: 'disk', group: 'Insights' },
   { id: 'netmap', label: 'Network map', icon: 'network', group: 'Insights' },
   { id: 'nginx', label: 'Nginx sites', icon: 'globe', group: 'Services' },
+  { id: 'monitoring', label: 'Monitoring', icon: 'analytics', group: 'Monitoring' },
   { id: 'kuma', label: 'Uptime', icon: 'pulse', group: 'Monitoring' },
   { id: 'grafana', label: 'Grafana', icon: 'analytics', group: 'Monitoring' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'alert', group: 'Monitoring' },
@@ -323,6 +325,7 @@ function Shell({ user, role, config, onLogout }: { user: string; role: string; c
             {current.id === 'netmap' && <Netmap />}
             {current.id === 'nginx' && <Nginx />}
             {current.id === 'grafana' && <Grafana uid={parts[1]} />}
+            {current.id === 'monitoring' && <Monitoring role={role} />}
             {current.id === 'kuma' && <Kuma statusUrl={config.kumaStatusUrl} />}
             {current.id === 'logs' && <Logs />}
             {current.id === 'notifications' && <Notifications role={role} />}

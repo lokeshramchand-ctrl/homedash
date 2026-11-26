@@ -4,6 +4,7 @@ import { api } from '../api';
 import { Async, Badge, Button, Card, ListRow, Screen, SectionTitle, Txt } from '../components/ui';
 import Diagnostics from './Diagnostics';
 import Gpu from './Gpu';
+import Monitoring from './Monitoring';
 import Notifications from './Notifications';
 import Sites from './Sites';
 import Tasks from './Tasks';
@@ -16,13 +17,14 @@ export default function More() {
   const back = () => setView('menu');
   if (view === 'sites') return <Sites onBack={back} />;
   if (view === 'tasks') return <Tasks onBack={back} />;
+  if (view === 'monitoring') return <Monitoring onBack={back} />;
   if (view === 'notifications') return <Notifications onBack={back} />;
   if (view === 'gpu') return <Gpu onBack={back} />;
   if (view === 'diagnostics') return <Diagnostics onBack={back} />;
   return <Menu go={setView} />;
 }
 
-type Sub = 'sites' | 'tasks' | 'notifications' | 'gpu' | 'diagnostics';
+type Sub = 'sites' | 'tasks' | 'monitoring' | 'notifications' | 'gpu' | 'diagnostics';
 
 function Menu({ go }: { go: (v: Sub) => void }) {
   const { user, serverUrl, signOut } = useSession();
@@ -42,6 +44,7 @@ function Menu({ go }: { go: (v: Sub) => void }) {
         <ListRow title="GPU & passthrough" sub="GPU owner, IOMMU, PCIe link, kernel GPU log" onPress={() => go('gpu')} />
         <ListRow title="Task log" sub="Proxmox tasks and their logs" onPress={() => go('tasks')} />
         <ListRow title="Nginx sites" sub="Sites enabled on the proxy" onPress={() => go('sites')} />
+        <ListRow title="Monitoring" sub="Everything connected, in one list" onPress={() => go('monitoring')} />
         <ListRow title="Notifications" sub="ntfy push alerts and rules" onPress={() => go('notifications')} />
       </Card>
       <SectionTitle>Account</SectionTitle>
