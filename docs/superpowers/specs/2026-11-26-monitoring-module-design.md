@@ -164,7 +164,7 @@ Rows in `monitoring_hook_state` older than the source's TTL are purged hourly by
 
 ## 12. Phases
 
-1. **Core.** Types, registry, engine, store; Kuma and Grafana providers wrapping existing code; `GET /api/monitoring`; Overview and notifier read the merged list; no UI to add sources yet (YAML sources only). Behaviour-preserving; the proof is the existing tests plus the new engine tests.
+1. **Core.** Types, registry, engine (the database store moves to Phase 2: with YAML-only sources there is nothing to store); Kuma and Grafana providers wrapping existing code; `GET /api/monitoring`; Overview and notifier read the merged list; no UI to add sources yet (YAML sources only). Behaviour-preserving; the proof is the existing tests plus the new engine tests.
 2. **Connect from the UI.** Sources API and Monitoring page; Prometheus/Alertmanager, JSON poll and webhook providers; Setup Connect buttons; runtime config for Kuma and Grafana. Closes FUA-012 for monitoring.
 3. **Usage and "Your most used".** Section 10.
 4. **More providers.** Zabbix, Netdata, Checkmk, Beszel, Healthchecks and others, chosen from researched popularity and verified against each tool's own docs, then the same pattern for Logs.
@@ -172,7 +172,7 @@ Rows in `monitoring_hook_state` older than the source's TTL are purged hourly by
 ## 13. Risks and open questions
 
 - **Unverified external formats.** Prometheus/Alertmanager endpoints and the Alertmanager/Grafana webhook payloads are from memory of their documentation and must be re-read from the official docs at the start of Phase 2. The Grafana rules route is an internal source route, not a documented contract (see `docs/research/one-stop-dashboard-gaps.md`).
-- **Inbound endpoint exposure.** The webhook is the first network door that is not session-protected. Mitigations are in section 7; if homedash sits behind nginx, the endpoint can also be limited to the LAN there. Decision for the owner: allow the query-string token form, or require the header only.
+- **Inbound endpoint exposure.** The webhook is the first network door that is not session-protected. Mitigations are in section 7; if homedash sits behind nginx, the endpoint can also be limited to the LAN there. Owner decision (2026-11-26): the query-string token form is allowed, with a warning in the connect form that URLs end up in logs; the header form is preferred and shown first.
 - **State for pushed checks.** A "down" pushed once and never resolved stays until the TTL. Heartbeat-style "no news is bad news" is out of scope for this spec.
 - **Merging identical problems from two sources** (Grafana and Alertmanager both firing the same rule) is not deduplicated; they appear once per source.
 - **Loss of the `grafana` event source name.** Existing timeline filters for `grafana` would be replaced by `monitor`; no stored data depends on it yet (added one commit ago).
