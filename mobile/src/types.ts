@@ -109,6 +109,8 @@ export interface GuestStatusDetail extends Guest {
 }
 export interface ConfigRow { key: string; value: string | null; pending: string | null; delete: boolean }
 export interface Snapshot { name: string; parent: string | null; description: string; time: number | null; vmstate: boolean; current: boolean }
+export interface NtfyMessage { id: string; time: number; title: string; message: string; priority: number; tags: string[]; click: string | null }
+export interface NtfyInbox { configured: boolean; topic: string; messages: NtfyMessage[]; checkedAt: number; error: string | null }
 export interface NotifySettings { enabled: boolean; recoveries: boolean; mutedUntil: string | null; categories: Record<string, boolean> }
 export interface NotifyInfo {
   configured: boolean; server: string; topic: string; subscribeUrl: string;

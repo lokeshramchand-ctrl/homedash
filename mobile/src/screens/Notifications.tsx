@@ -15,6 +15,7 @@ const LABEL: Record<string, string> = {
 export default function Notifications({ onBack }: { onBack: () => void }) {
   const t = useTheme();
   const q = useQuery(api.notify, 10_000);
+  const inbox = useQuery(api.ntfyInbox, 30_000);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
@@ -58,6 +59,20 @@ export default function Notifications({ onBack }: { onBack: () => void }) {
               ))}
               <ListRow title="Recovery messages" sub="Also notify when things come back up" right={sw(d.settings.recoveries, (v) => save({ recoveries: v }), !d.settings.enabled)} />
             </Card>
+            <SectionTitle>ntfy inbox</SectionTitle>
+            <Async q={inbox} rows={2} h={60}>
+              {(box) => box.error ? <StateView title="Can't read the inbox" hint={box.error} />
+                : box.messages.length === 0 ? <StateView title="Inbox is empty" hint="Nothing was published to the topic in the last ~12 hours." />
+                : (
+                  <Card style={{ paddingVertical: 0 }}>
+                    {box.messages.slice(0, 30).map((m, i) => (
+                      <ListRow key={m.id} first={i === 0} title={m.title || m.message.slice(0, 80) || '(no text)'}
+                        sub={`${m.title ? `${m.message} · ` : ''}${timeAgo(new Date(m.time).toISOString())}`}
+                        right={<Badge tone={m.priority >= 5 ? 'red' : m.priority >= 4 ? 'amber' : 'gray'}>{m.priority >= 5 ? 'urgent' : m.priority >= 4 ? 'high' : 'msg'}</Badge>} />
+                    ))}
+                  </Card>
+                )}
+            </Async>
             <SectionTitle>Recently sent</SectionTitle>
             {d.sent.length === 0 ? <StateView title="Nothing sent yet" /> : (
               <Card style={{ paddingVertical: 0 }}>

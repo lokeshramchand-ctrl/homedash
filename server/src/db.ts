@@ -33,7 +33,7 @@ export interface SampleRow {
   status: 'up' | 'down' | 'pending' | 'maintenance'; ping: number | null; ts: number;
 }
 export interface EventRow {
-  id: number; ts: number; level: 'info' | 'warn' | 'error'; source: 'app' | 'db' | 'host' | 'guest' | 'monitor' | 'auth'; message: string;
+  id: number; ts: number; level: 'info' | 'warn' | 'error'; source: 'app' | 'db' | 'host' | 'guest' | 'monitor' | 'auth' | 'alert' | 'grafana'; message: string;
   data: Record<string, unknown> | null;
 }
 export interface SampleStat { monitorKey: string; up30: number; n30: number; up24: number; n24: number; ping: number | null }

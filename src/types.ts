@@ -11,6 +11,15 @@ export interface Overview {
   host: { cpu: number; memUsed: number; memTotal: number; diskUsed: number; diskTotal: number; uptime: number };
 }
 
+export interface NtfyMessage { id: string; time: number; title: string; message: string; priority: number; tags: string[]; click: string | null }
+export interface NtfyInbox { configured: boolean; topic: string; messages: NtfyMessage[]; checkedAt: number; error: string | null }
+
+export interface GrafanaAlert {
+  key: string; name: string; state: 'firing' | 'pending'; level: 'warn' | 'error';
+  folder: string; group: string; summary: string; since: number | null; instances: number; url: string | null;
+}
+export interface GrafanaAlertsInfo { configured: boolean; alerts: GrafanaAlert[]; firing: number; pending: number; checkedAt: number; error: string | null }
+
 export interface Guest {
   vmid: number;
   name: string;
@@ -107,7 +116,7 @@ export interface AppConfig {
 export type EventLevel = 'info' | 'warn' | 'error';
 export interface SystemEvent {
   id: string; ts: string; level: EventLevel;
-  source: 'app' | 'db' | 'host' | 'guest' | 'monitor' | 'auth'; message: string; data: Record<string, unknown> | null;
+  source: 'app' | 'db' | 'host' | 'guest' | 'monitor' | 'auth' | 'alert' | 'grafana'; message: string; data: Record<string, unknown> | null;
 }
 export interface JournalLine { ts: string; priority: number; unit: string; message: string; pid?: string }
 export interface BootInfo { index: number; bootId: string; first: string; last: string; clean: boolean | null; endReason: string }

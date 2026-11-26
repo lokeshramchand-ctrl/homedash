@@ -1,6 +1,6 @@
 import { selectedCluster, selectedNode } from './selection';
 import type {
-  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaPanel, KumaIncident, KumaMonitor,
+  AppConfig, SetupInfo, BackupInfo, AuditReport, HaState, VersionInfo, TileAdmin, TileCatalog, TileSuggestion, TileStat, Upkeep, Tile, Guest, GuestAction, GrafanaDashboard, GrafanaAlertsInfo, GrafanaPanel, NtfyInbox, KumaIncident, KumaMonitor,
   JournalLine, LogSummary, NetMap, Protection, Capacity, Health, Scene, SceneStep, SceneRun, Schedule, NginxSite, NginxManage, NginxDetail, NginxSpec, NginxApplied, Overview, PromResult, SsoConfig, SystemEvent, Task,
   AiInfo, ConfigRow, Diagnostics, Disk, GpuInfo, GuestLogs, WindowsReport, LogLine, Sensor, NotifyInfo, NotifySettings, GuestStatusDetail, NetIface, NodeInfo, PveTask, RrdPoint, Service, Snapshot, Storage, Timeframe,
 } from './types';
@@ -210,6 +210,8 @@ export const api = {
   nginxTest: () => post<{ ok: boolean; output: string }>('/nginx/test'),
   nginxReload: () => post<{ ok: boolean }>('/nginx/reload'),
   dashboards: () => get<GrafanaDashboard[]>('/grafana/dashboards'),
+  ntfyInbox: () => get<NtfyInbox>('/ntfy/inbox'),
+  grafanaAlerts: () => get<GrafanaAlertsInfo>('/grafana/alerts'),
   panels: (uid: string) => get<GrafanaPanel[]>(`/grafana/panels/${encodeURIComponent(uid)}`),
   query: (query: string, start: number, end: number, step: number) =>
     post<PromResult>('/metrics/query', { query, start, end, step }),

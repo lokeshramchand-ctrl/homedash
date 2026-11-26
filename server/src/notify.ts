@@ -9,7 +9,7 @@ import type { Level, Msg } from './channels.js';
 import { forEachCluster, multiCluster, nodePath, where } from './clusters.js';
 import type { Cluster } from './clusters.js';
 import { cfg, pveConfigured } from './config.js';
-import { getState, setState } from './db.js';
+import { getState, insertEvent, setState } from './db.js';
 import type { EventRow } from './db.js';
 import { HttpError, notConfigured } from './errors.js';
 import { haState } from './ha.js';
@@ -18,6 +18,7 @@ import type { Problem } from './maintenance.js';
 import { recentHardwareErrors, remoteHardwareErrors } from './diagnostics.js';
 import { logEvent } from './events.js';
 import { pve } from './proxmox.js';
+import { grafanaAlerts } from './grafanaalerts.js';
 
 export const CATEGORIES = ['monitor', 'guest', 'host', 'resources', 'tasks', 'gpu', 'hardware', 'disks', 'services', 'crowdsec', 'db', 'app', 'auth'] as const;
 type Category = (typeof CATEGORIES)[number];
@@ -69,8 +70,23 @@ async function deliver(channels: typeof CHANNELS, m: Msg): Promise<Delivery[]> {
   return results.map((r, i) => (r.status === 'fulfilled' ? { channel: channels[i].id, ok: true } : { channel: channels[i].id, ok: false, error: (r.reason as Error).message }));
 }
 
+/** Straight into the persisted event timeline. Not logEvent: that would raise another alert for the entry. */
+function persistEvent(level: EventRow['level'], source: EventRow['source'], message: string, data?: Record<string, unknown>) {
+  try { insertEvent({ ts: Date.now(), level, source, message, data: data ?? null }, cfg.eventRetentionDays); } catch { /* the timeline must never break alerting */ }
+}
+
+/** One line for the timeline: where an alert went, or why it went nowhere. */
+export function describeDelivery(title: string, deliveries: Delivery[], silencedBy?: string): { level: EventRow['level']; text: string } {
+  if (silencedBy) return { level: 'info', text: `Alert held back (${silencedBy}): ${title}` };
+  if (!deliveries.length) return { level: 'info', text: `Alert not sent, no channel wanted it: ${title}` };
+  const bad = deliveries.filter((d) => !d.ok);
+  if (bad.length) return { level: 'warn', text: `Alert delivery failed on ${bad.map((d) => d.channel).join(', ')}${bad.length < deliveries.length ? ` (sent to ${deliveries.filter((d) => d.ok).map((d) => d.channel).join(', ')})` : ''}: ${title}` };
+  return { level: 'info', text: `Alert sent to ${deliveries.map((d) => d.channel).join(', ')}: ${title}` };
+}
+
 const record = (rec: Omit<Sent, 'ok' | 'error'>) => {
   const failed = rec.deliveries.filter((d) => !d.ok);
+  if (rec.title !== 'homedash test') { const d = describeDelivery(rec.title, rec.deliveries, rec.silencedBy); persistEvent(d.level, 'alert', d.text, { category: rec.category, deliveries: rec.deliveries, ...(rec.routedBy ? { routedBy: rec.routedBy } : {}) }); }
   sent.unshift({ ...rec, ok: failed.length === 0, ...(failed.length ? { error: failed.map((d) => `${d.channel}: ${d.error}`).join(' · ') } : {}) });
   if (sent.length > 100) sent.pop();
 };
@@ -107,7 +123,7 @@ export function alert(category: Category, level: EventRow['level'], title: strin
   void deliver(targets, msg).then((deliveries) => record({ ...base, deliveries, ...(route ? { routedBy: route.names } : {}) }));
 }
 
-const TITLES: Record<EventRow['source'], string> = { app: 'Dashboard', db: 'Database', host: 'Proxmox host', guest: 'Guest', monitor: 'Uptime monitor', auth: 'Sign-in' };
+const TITLES: Record<EventRow['source'], string> = { app: 'Dashboard', db: 'Database', host: 'Proxmox host', guest: 'Guest', monitor: 'Uptime monitor', auth: 'Sign-in', alert: 'Alert delivery', grafana: 'Grafana' };
 /**
  * A stable key per problem, so a recovery can close the incident its failure opened: one per monitor, one for the
  * Proxmox API. Anything else keeps the old per-message key (it de-duplicates but does not pair).
@@ -125,6 +141,7 @@ function eventKey(source: EventRow['source'], level: EventRow['level'], message:
 
 /** Called by logEvent for every system event. */
 export function alertFromEvent(level: EventRow['level'], source: EventRow['source'], message: string) {
+  if (source === 'alert' || source === 'grafana') return; // timeline-only sources: they describe alerts, they never raise one
   if (level === 'info') {
     // Only recoveries are worth a push; routine info (starts, requested guest actions) is not.
     const recovery = /reachable again|down → up$|is back online|has quorum again/.test(message);
@@ -263,20 +280,20 @@ async function watchNode(c: Cluster, node: string, local: boolean) {
 
 /** Raises one alert per new problem and one recovery when it disappears. `scope` keeps different sources apart. */
 const syncRaised = new Map<string, string>();
-function syncProblems(scope: string, category: Category, problems: Problem[]) {
+function syncProblems(scope: string, category: Category, problems: Problem[], log: (level: EventRow['level'], text: string) => void = (level, text) => logEvent(level, 'host', text)) {
   const now = new Set<string>();
   for (const p of problems) {
     const key = `${scope}|${p.key}`;
     now.add(key);
     if (syncRaised.has(key)) continue;
     syncRaised.set(key, p.title);
-    logEvent(p.level === 'error' ? 'error' : 'warn', 'host', `${p.title}: ${p.text}`);
+    log(p.level === 'error' ? 'error' : 'warn', `${p.title}: ${p.text}`);
     alert(category, p.level, p.title, p.text, key);
   }
   for (const [key, title] of [...syncRaised]) {
     if (!key.startsWith(`${scope}|`) || now.has(key)) continue;
     syncRaised.delete(key);
-    logEvent('info', 'host', `Recovered: ${title}`);
+    log('info', `Recovered: ${title}`);
     alert(category, 'info', `Recovered · ${title}`, 'No longer reported', `${key}|ok`);
   }
 }
@@ -312,16 +329,29 @@ async function watchCrowdsec() {
   csFirst = false;
 }
 
+// Grafana alert rules that are firing become homedash alerts, so routes, silences, maintenance windows and every channel apply.
+// A failed read leaves the raised set untouched: an unreachable Grafana must not look like "everything recovered".
+async function watchGrafana() {
+  const g = await grafanaAlerts();
+  if (!g.configured || g.error) return;
+  syncProblems('grafana', 'monitor', g.alerts.filter((a) => a.state === 'firing').map((a) => ({
+    key: a.key, level: a.level, title: `Grafana alert: ${a.name}`,
+    text: `${a.summary || 'Alert rule is firing.'}${a.instances > 1 ? ` (${a.instances} instances)` : ''} Folder: ${a.folder}.`,
+  })), (level, text) => persistEvent(level, 'grafana', text));
+}
+
 export function startNotify(app: FastifyInstance) {
   void loadSettings();
   if (!anyChannelConfigured()) { app.log.warn('no alert channel configured; push alerts disabled'); return; }
   const t = setInterval(() => {
     watch().catch((e) => app.log.warn({ err: (e as Error).message }, 'notify watch failed'));
     watchCrowdsec().catch((e) => app.log.warn({ err: (e as Error).message }, 'crowdsec watch failed'));
+    watchGrafana().catch((e) => app.log.warn({ err: (e as Error).message }, 'grafana watch failed'));
   }, 60_000);
   t.unref();
   setTimeout(() => void watch().catch(() => {}), 5_000).unref();
   setTimeout(() => void watchCrowdsec().catch(() => {}), 25_000).unref();
+  setTimeout(() => void watchGrafana().catch(() => {}), 35_000).unref();
 }
 
 export function registerNotify(app: FastifyInstance) {

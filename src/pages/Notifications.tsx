@@ -161,6 +161,7 @@ function ChannelsTab({ q, onSilenced }: { q: ReturnType<typeof useQuery<NotifyIn
                 </Card>
               )}
             </div>
+            {d.configured && <NtfyInboxCard />}
             <Card pad={false}>
               <div className="pad"><CardHead title="Recently sent" sub="Since the dashboard last started" /></div>
               {d.sent.length === 0 ? <EmptyState icon="inbox" title="Nothing sent yet" hint={d.configured ? 'Alerts appear here as they go out. Use Test all to try.' : 'Set up a channel first.'} /> : (
@@ -189,6 +190,41 @@ function ChannelsTab({ q, onSilenced }: { q: ReturnType<typeof useQuery<NotifyIn
         )}
       </Async>
     </>
+  );
+}
+
+/** What has been published to the alert topic, read back from ntfy, so ntfy itself never has to be opened. */
+function NtfyInboxCard() {
+  const q = useQuery(api.ntfyInbox, [], 30_000);
+  const d = q.data;
+  return (
+    <Card pad={false}>
+      <div className="pad"><CardHead title="ntfy inbox" sub={d ? `Topic ${d.topic}. ntfy keeps messages for about 12 hours.` : 'Reading the topic…'} /></div>
+      {q.error && !d ? <EmptyState icon="inbox" title="Couldn’t read ntfy" hint={(q.error as Error).message} />
+        : !d ? <div className="pad"><Spinner /></div>
+        : d.error ? <EmptyState icon="inbox" title="Can’t read the inbox" hint={d.error} />
+        : d.messages.length === 0 ? <EmptyState icon="inbox" title="Inbox is empty" hint="Nothing has been published to this topic recently." />
+        : (
+          <ul className="feed">
+            {d.messages.map((m) => (
+              <li key={m.id}>
+                <span className={`inc-dot ${m.priority >= 5 ? 'd-down' : m.priority >= 4 ? 'd-pending' : ''}`} />
+                <div className="grow">
+                  <b>{m.title || m.message.slice(0, 80) || '(no text)'}</b>
+                  {m.title && m.message && <p className="muted small">{m.message}</p>}
+                  {(m.tags.length > 0 || m.click) && (
+                    <div className="chips-row">
+                      {m.tags.map((t) => <Badge key={t} tone="gray">{t}</Badge>)}
+                      {m.click && <a className="link small" href={m.click} target="_blank" rel="noopener noreferrer">Open</a>}
+                    </div>
+                  )}
+                </div>
+                <span className="muted small nowrap">{timeAgo(new Date(m.time).toISOString())}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+    </Card>
   );
 }
 

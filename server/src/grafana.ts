@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { cfg, grafanaConfigured } from './config.js';
 import { HttpError, notConfigured } from './errors.js';
 
-async function gf<T>(path: string): Promise<T> {
+export async function gf<T>(path: string): Promise<T> {
   if (!grafanaConfigured()) throw notConfigured('Grafana');
   let res: Response;
   try {

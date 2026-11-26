@@ -6,7 +6,7 @@ import { Async, Badge, Card, CardHead, ErrorState, Icon, Meter, PageHeader, Skel
 import type { IconName, Tone } from '../components/ui';
 import { fmtBytes, fmtPct, fmtUptime, timeAgo } from '../format';
 import { useCountUp, useQuery } from '../hooks';
-import type { Overview as Ov } from '../types';
+import type { GrafanaAlertsInfo, Overview as Ov } from '../types';
 
 function Tile({ icon, label, value, sub, tone, href, na }: { icon: IconName; label: string; value: number; sub: string; tone: Tone; href: string; na?: boolean }) {
   const n = Math.round(useCountUp(value));
@@ -54,7 +54,7 @@ function HealthRing({ score }: { score: number }) {
 
 interface Attn { key: string; tone: 'red' | 'amber'; label: string; value: string; text: string; href: string }
 
-function attention(o: Ov, incidents: { monitorId: number; name: string; status: string; message: string }[]): Attn[] {
+function attention(o: Ov, incidents: { monitorId: number; name: string; status: string; message: string }[], ga?: GrafanaAlertsInfo | null): Attn[] {
   const out: Attn[] = [];
   const m = o.host.memUsed / o.host.memTotal, d = o.host.diskUsed / o.host.diskTotal;
   if (o.host.cpu > 0.75) out.push({ key: 'cpu', tone: 'red', label: 'CPU', value: fmtPct(o.host.cpu), text: 'High CPU on the Proxmox host', href: '#/grafana' });
@@ -64,16 +64,23 @@ function attention(o: Ov, incidents: { monitorId: number; name: string; status: 
     if (i.status === 'maintenance') continue;
     out.push({ key: `m${i.monitorId}`, tone: i.status === 'down' ? 'red' : 'amber', label: 'Monitor', value: i.status, text: `${i.name} is ${i.status}`, href: '#/kuma' });
   }
+  // Grafana alert rules that are firing. A failed read is shown as its own item, never as "all clear".
+  for (const a of ga?.alerts ?? []) {
+    if (a.state !== 'firing') continue;
+    out.push({ key: `g${a.key}`, tone: a.level === 'error' ? 'red' : 'amber', label: 'Grafana', value: 'firing', text: `${a.name}${a.summary ? `: ${a.summary}` : ''}`, href: a.url ?? '#/grafana' });
+  }
+  if (ga?.configured && ga.error) out.push({ key: 'gerr', tone: 'amber', label: 'Grafana', value: 'unreadable', text: `Can't read Grafana alerts: ${ga.error.slice(0, 120)}`, href: '#/grafana' });
   return out;
 }
 
 export default function Overview() {
   const ov = useQuery(api.overview, [], 8000);
   const inc = useQuery(api.incidents, [], 10000);
+  const ga = useQuery(api.grafanaAlerts, [], 30000);
   const pct = (v: number) => `${v.toFixed(0)}%`;
 
   // Kuma incidents failing (Kuma not set up) must not blank the whole list: every source is optional.
-  const items = ov.data ? attention(ov.data, inc.data ?? []) : null;
+  const items = ov.data ? attention(ov.data, inc.data ?? [], ga.data) : null;
   // Zeros from an integration that was never set up look like real, healthy data; say "not connected" instead.
   const cf = ov.data?.configured;
   const noPve = !!cf && !cf.proxmox, noKuma = !!cf && !cf.kuma, noMetrics = !!cf && !cf.metrics;
