@@ -17,3 +17,7 @@ HANDOFF.md
 # Browser test output
 test-results/
 playwright-report/
+
+# Phone Wheel TLS certs (generated locally)
+tools/phone-wheel/.certs/
+__pycache__/

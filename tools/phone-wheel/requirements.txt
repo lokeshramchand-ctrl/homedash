@@ -1,0 +1,4 @@
+aiohttp>=3.9
+cryptography>=42
+# Windows only: virtual Xbox 360 controller (needs the ViGEmBus driver, see README)
+vgamepad>=0.1.0; sys_platform == "win32"
